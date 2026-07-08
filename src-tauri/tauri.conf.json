@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "crazy-win",
+  "productName": "DevBox",
   "version": "0.1.0",
   "identifier": "com.admin.crazy-win",
   "build": {
@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "crazy-win",
-        "width": 800,
-        "height": 600
+        "title": "DevBox",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 900,
+        "minHeight": 600
       }
     ],
     "security": {
