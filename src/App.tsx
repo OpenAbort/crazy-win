@@ -12,11 +12,11 @@ function App() {
   const ActiveComponent = activeTool.Component;
 
   return (
-    <SidebarProvider>
+    <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar activeId={activeId} onSelect={setActiveId} />
-      <SidebarInset>
+      <SidebarInset className="min-h-0">
         <AppHeader activeTool={activeTool} />
-        <main className="flex flex-1 flex-col overflow-auto">
+        <main className="flex min-h-0 flex-1 flex-col overflow-auto">
           <ActiveComponent />
         </main>
       </SidebarInset>
