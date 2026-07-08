@@ -13,10 +13,11 @@
     "windows": [
       {
         "title": "DevBox",
-        "width": 1100,
-        "height": 720,
+        "width": 1440,
+        "height": 900,
         "minWidth": 900,
-        "minHeight": 600
+        "minHeight": 600,
+        "center": true
       }
     ],
     "security": {
