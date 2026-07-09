@@ -39,6 +39,16 @@ jobs:
         with:
           tagName: ${{ inputs.tag || github.ref_name }}
           releaseName: "DevBox ${{ inputs.tag || github.ref_name }}"
-          releaseBody: "Download the installer below."
+          releaseBody: "Download the installer, or the portable .exe if you don't want to install anything."
           releaseDraft: false
           prerelease: false
+
+      - name: Upload portable executable
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ inputs.tag || github.ref_name }}"
+          $dest = "DevBox-$tag-portable.exe"
+          Copy-Item "src-tauri/target/release/crazy-win.exe" $dest
+          gh release upload $tag $dest --clobber --repo ${{ github.repository }}
