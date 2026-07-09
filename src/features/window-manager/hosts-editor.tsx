@@ -96,7 +96,7 @@ export function HostsEditor() {
         filters: [{ name: "Text", extensions: ["txt"] }],
       });
       if (!path) return;
-      await invoke("export_hosts_backup", { path, content });
+      await invoke("export_text_backup", { path, content });
       setStatus("Backup exported");
     } catch (e) {
       setError(String(e));
