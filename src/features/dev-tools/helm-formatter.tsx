@@ -146,47 +146,48 @@ type SetValuesListProps = {
 
 function SetValuesList({ entries, onUpdate, onDelete, onAdd }: SetValuesListProps) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
-      <div className="divide-y">
-        {entries.length === 0 && (
-          <div className="flex flex-col items-center gap-2 py-16 text-center text-sm text-muted-foreground">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
+      <div className="min-h-0 flex-1 overflow-y-auto divide-y">
+        {entries.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
             Paste a helm command above, or add a value below.
           </div>
-        )}
-
-        {entries.map((entry) => (
-          <div key={entry.id} className="flex items-center gap-3 px-3 py-2">
-            <span className="w-20 shrink-0 font-mono text-[10px] text-muted-foreground">
-              --{entry.mode}
-            </span>
-            <Input
-              value={entry.key}
-              onChange={(e) => onUpdate(entry.id, { key: e.target.value })}
-              className="flex-1 font-mono text-sm"
-            />
-            {entry.valueKind === "bool" ? (
-              <Switch
-                checked={entry.value === "true"}
-                onCheckedChange={(checked) => onUpdate(entry.id, { value: String(checked) })}
-              />
-            ) : (
+        ) : (
+          entries.map((entry) => (
+            <div key={entry.id} className="flex items-center gap-3 px-3 py-2">
+              <span className="w-20 shrink-0 font-mono text-[10px] text-muted-foreground">
+                --{entry.mode}
+              </span>
               <Input
-                value={entry.value}
-                onChange={(e) => onUpdate(entry.id, { value: e.target.value })}
+                value={entry.key}
+                onChange={(e) => onUpdate(entry.id, { key: e.target.value })}
                 className="flex-1 font-mono text-sm"
               />
-            )}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => onDelete(entry.id)}
-              aria-label="Delete value"
-            >
-              <Trash2 />
-            </Button>
-          </div>
-        ))}
-
+              {entry.valueKind === "bool" ? (
+                <Switch
+                  checked={entry.value === "true"}
+                  onCheckedChange={(checked) => onUpdate(entry.id, { value: String(checked) })}
+                />
+              ) : (
+                <Input
+                  value={entry.value}
+                  onChange={(e) => onUpdate(entry.id, { value: e.target.value })}
+                  className="flex-1 font-mono text-sm"
+                />
+              )}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => onDelete(entry.id)}
+                aria-label="Delete value"
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          ))
+        )}
+      </div>
+      <div className="border-t">
         <AddSetEntryForm onAdd={onAdd} />
       </div>
     </div>

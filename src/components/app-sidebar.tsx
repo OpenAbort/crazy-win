@@ -1,5 +1,6 @@
-import {Fragment} from "react";
+import {Fragment, useEffect, useState} from "react";
 import {ChevronRight, Terminal} from "lucide-react";
+import {getVersion} from "@tauri-apps/api/app";
 
 import {Collapsible, CollapsibleContent, CollapsibleTrigger,} from "@/components/ui/collapsible";
 import {
@@ -13,6 +14,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {sections, type ToolId, toolsBySection} from "@/lib/tools";
 import {Separator} from "@/components/ui/separator";
@@ -23,6 +25,16 @@ type AppSidebarProps = {
 };
 
 export function AppSidebar({activeId, onSelect}: AppSidebarProps) {
+  const {state} = useSidebar();
+  const [version, setVersion] = useState<string | null>(null);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(sections.map((s) => [s.id, true])),
+  );
+
+  useEffect(() => {
+    void getVersion().then(setVersion);
+  }, []);
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -52,7 +64,10 @@ export function AppSidebar({activeId, onSelect}: AppSidebarProps) {
         {sections.map((section) => (
           <Fragment key={section.id}>
             <Collapsible
-              defaultOpen
+              open={state === "collapsed" ? true : (openSections[section.id] ?? true)}
+              onOpenChange={(open) =>
+                setOpenSections((prev) => ({...prev, [section.id]: open}))
+              }
               className="group/collapsible"
             >
               <SidebarGroup>
@@ -91,7 +106,7 @@ export function AppSidebar({activeId, onSelect}: AppSidebarProps) {
 
       <SidebarFooter>
         <div className="px-2 py-1.5 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-          v0.1.0
+          {version ? `v${version}` : null}
         </div>
       </SidebarFooter>
     </Sidebar>
