@@ -6,6 +6,7 @@ import {
   GitCompareArrows,
   Network,
   Settings2,
+  Ship,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -15,6 +16,7 @@ import { EnvEditor } from "@/features/window-manager/env-editor";
 import { Formatter } from "@/features/dev-tools/formatter";
 import { TextComparer } from "@/features/dev-tools/text-comparer";
 import { MarkdownViewer } from "@/features/dev-tools/markdown-viewer";
+import { HelmFormatter } from "@/features/dev-tools/helm-formatter";
 
 export type SectionId = "window-manager" | "dev-tools";
 
@@ -23,7 +25,8 @@ export type ToolId =
   | "env-editor"
   | "formatter"
   | "text-comparer"
-  | "markdown-viewer";
+  | "markdown-viewer"
+  | "helm-formatter";
 
 export interface SectionDef {
   id: SectionId;
@@ -85,6 +88,14 @@ export const tools: ToolDef[] = [
     icon: FileText,
     section: "dev-tools",
     Component: MarkdownViewer,
+  },
+  {
+    id: "helm-formatter",
+    label: "Helm Formatter",
+    description: "Tidy multi-line helm commands and edit --set values",
+    icon: Ship,
+    section: "dev-tools",
+    Component: HelmFormatter,
   },
 ];
 
