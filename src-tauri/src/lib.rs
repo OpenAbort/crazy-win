@@ -12,6 +12,11 @@ use libs::cli::helm::Helm;
 use libs::cli::kubectl::Kubectl;
 use libs::io::env_vars::EnvVars;
 use libs::io::hosts_file::HostsFile;
+use libs::kafka::admin::KafkaAdmin;
+use libs::kafka::consumer::{self, KafkaConsumeStreams};
+use libs::kafka::lifecycle::KafkaLifecycle;
+use libs::kafka::produce::KafkaProducer;
+use libs::kafka::types::brokers_to_summaries;
 use tauri::Emitter;
 
 /// Tracks in-flight `docker logs -f` child processes so a stream can be
@@ -302,6 +307,150 @@ async fn helm_uninstall(context: String, namespace: String, release: String) -> 
     off_main_thread(move || Helm::uninstall(&context, &namespace, &release)).await
 }
 
+// --- Kafka lifecycle ---
+// Both start targets (Docker / Helm-k8s) compose the existing Docker/Helm/Kubectl
+// CLI wrappers rather than shelling out directly; see libs::kafka::lifecycle.
+
+// `mode` follows the same "cli" (shell out to docker.exe) / "api" (Docker
+// Engine API over reqwest, no docker.exe required) convention as the rest of
+// Docker Manager's commands.
+
+#[tauri::command]
+async fn kafka_docker_start(
+    host: String,
+    container_name: String,
+    image: String,
+    port: u16,
+    extra_env: Vec<(String, String)>,
+    mode: String,
+) -> Result<(), String> {
+    match mode.as_str() {
+        "api" => DockerApi::run_kafka_container(&host, &container_name, &image, port, &extra_env).await,
+        _ => {
+            off_main_thread(move || KafkaLifecycle::docker_start(&host, &container_name, &image, port, &extra_env))
+                .await
+        }
+    }
+}
+
+#[tauri::command]
+async fn kafka_docker_stop(host: String, container_name: String, mode: String) -> Result<(), String> {
+    match mode.as_str() {
+        "api" => DockerApi::stop_container(&host, &container_name).await,
+        _ => off_main_thread(move || KafkaLifecycle::docker_stop(&host, &container_name)).await,
+    }
+}
+
+#[tauri::command]
+async fn kafka_docker_reset(
+    host: String,
+    container_name: String,
+    image: String,
+    port: u16,
+    extra_env: Vec<(String, String)>,
+    mode: String,
+) -> Result<(), String> {
+    match mode.as_str() {
+        "api" => {
+            let _ = DockerApi::remove_container(&host, &container_name, true).await;
+            let _ = DockerApi::remove_volume(&host, &format!("{container_name}-data")).await;
+            DockerApi::run_kafka_container(&host, &container_name, &image, port, &extra_env).await
+        }
+        _ => {
+            off_main_thread(move || KafkaLifecycle::docker_reset(&host, &container_name, &image, port, &extra_env))
+                .await
+        }
+    }
+}
+
+#[tauri::command]
+async fn kafka_helm_start(
+    context: String,
+    namespace: String,
+    release: String,
+    chart: String,
+    values: Vec<(String, String)>,
+) -> Result<(), String> {
+    off_main_thread(move || KafkaLifecycle::helm_start(&context, &namespace, &release, &chart, &values)).await
+}
+
+#[tauri::command]
+async fn kafka_helm_stop(context: String, namespace: String, release: String) -> Result<(), String> {
+    off_main_thread(move || KafkaLifecycle::helm_stop(&context, &namespace, &release)).await
+}
+
+#[tauri::command]
+async fn kafka_helm_reset(
+    context: String,
+    namespace: String,
+    release: String,
+    chart: String,
+    values: Vec<(String, String)>,
+) -> Result<(), String> {
+    off_main_thread(move || KafkaLifecycle::helm_reset(&context, &namespace, &release, &chart, &values)).await
+}
+
+// --- Kafka: topics/brokers (rskafka, no CLI fallback) ---
+
+#[tauri::command]
+async fn kafka_list_topics(brokers: String) -> Result<String, String> {
+    let topics = KafkaAdmin::list_topics(&brokers).await?;
+    serde_json::to_string(&topics).map_err(|e| e.to_string())
+}
+
+/// Echoes the configured bootstrap servers — rskafka exposes no API to query
+/// the cluster's actual broker roster.
+#[tauri::command]
+async fn kafka_list_brokers(brokers: String) -> Result<String, String> {
+    serde_json::to_string(&brokers_to_summaries(&brokers)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn kafka_create_topic(brokers: String, name: String, partitions: i32, replication_factor: i16) -> Result<(), String> {
+    KafkaAdmin::create_topic(&brokers, &name, partitions, replication_factor).await
+}
+
+#[tauri::command]
+async fn kafka_delete_topic(brokers: String, name: String) -> Result<(), String> {
+    KafkaAdmin::delete_topic(&brokers, &name).await
+}
+
+#[tauri::command]
+async fn kafka_purge_topic(brokers: String, name: String) -> Result<(), String> {
+    KafkaAdmin::purge_topic(&brokers, &name).await
+}
+
+#[tauri::command]
+async fn kafka_start_consume_stream(
+    brokers: String,
+    topic: String,
+    partitions: Vec<i32>,
+    app: tauri::AppHandle,
+    streams: tauri::State<'_, KafkaConsumeStreams>,
+) -> Result<u64, String> {
+    let stream_id = streams.next_id();
+    consumer::start_stream(brokers, topic, partitions, app, stream_id, &streams).await?;
+    Ok(stream_id)
+}
+
+#[tauri::command]
+fn kafka_stop_consume_stream(stream_id: u64, streams: tauri::State<'_, KafkaConsumeStreams>) -> Result<(), String> {
+    streams.stop(stream_id);
+    Ok(())
+}
+
+#[tauri::command]
+async fn kafka_produce(
+    brokers: String,
+    topic: String,
+    partition: i32,
+    key: Option<String>,
+    value: Option<String>,
+    headers: Vec<(String, String)>,
+) -> Result<i64, String> {
+    KafkaProducer::produce(&brokers, &topic, partition, key, value, headers).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -309,6 +458,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(LogStreams::default())
+        .manage(KafkaConsumeStreams::default())
         .invoke_handler(tauri::generate_handler![
             read_hosts,
             write_hosts,
@@ -332,7 +482,21 @@ pub fn run() {
             helm_list_releases,
             helm_get_values,
             helm_status,
-            helm_uninstall
+            helm_uninstall,
+            kafka_docker_start,
+            kafka_docker_stop,
+            kafka_docker_reset,
+            kafka_helm_start,
+            kafka_helm_stop,
+            kafka_helm_reset,
+            kafka_list_topics,
+            kafka_list_brokers,
+            kafka_create_topic,
+            kafka_delete_topic,
+            kafka_purge_topic,
+            kafka_start_consume_stream,
+            kafka_stop_consume_stream,
+            kafka_produce
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

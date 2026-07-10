@@ -4,7 +4,7 @@ export type ConnectionMode = "cli" | "api";
 
 let storePromise: Promise<Store> | null = null;
 
-function getStore(): Promise<Store> {
+export function getStore(): Promise<Store> {
   storePromise ??= load("dev-environment-settings.json", { defaults: {}, autoSave: true });
   return storePromise;
 }

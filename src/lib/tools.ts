@@ -11,6 +11,7 @@ import {
   Network,
   Settings2,
   Ship,
+  Waypoints,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -44,6 +45,9 @@ const KubernetesManager = lazy(() =>
 const HelmReleases = lazy(() =>
   import("@/features/dev-environment/helm-releases").then((m) => ({ default: m.HelmReleases })),
 );
+const KafkaManager = lazy(() =>
+  import("@/features/dev-environment/kafka-manager").then((m) => ({ default: m.KafkaManager })),
+);
 
 export type SectionId = "window-manager" | "dev-tools" | "dev-environment";
 
@@ -56,7 +60,8 @@ export type ToolId =
   | "helm-formatter"
   | "docker-manager"
   | "kubernetes-manager"
-  | "helm-releases";
+  | "helm-releases"
+  | "kafka-manager";
 
 export interface SectionDef {
   id: SectionId;
@@ -151,6 +156,14 @@ export const tools: ToolDef[] = [
     icon: Anchor,
     section: "dev-environment",
     Component: HelmReleases,
+  },
+  {
+    id: "kafka-manager",
+    label: "Kafka",
+    description: "Browse topics, tail messages, produce, and manage a Kafka broker",
+    icon: Waypoints,
+    section: "dev-environment",
+    Component: KafkaManager,
   },
 ];
 

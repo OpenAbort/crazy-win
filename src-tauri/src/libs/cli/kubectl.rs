@@ -81,4 +81,22 @@ impl Kubectl {
         exec::run("kubectl", &args)?;
         Ok(())
     }
+
+    /// Deletes every resource of `resource` kind matching `label_selector`
+    /// (e.g. cleaning up a Helm release's PVCs before reinstalling) rather
+    /// than a single named resource — deliberately bypasses `validate_kind`,
+    /// since `pvc` isn't in the app's pods/deployments/services allowlist.
+    pub fn delete_by_label(context: &str, namespace: &str, resource: &str, label_selector: &str) -> Result<(), String> {
+        let mut args = vec!["--context".to_string(), context.to_string(), "-n".to_string(), namespace.to_string()];
+        args.extend(timeout_args());
+        args.extend([
+            "delete".to_string(),
+            resource.to_string(),
+            "-l".to_string(),
+            label_selector.to_string(),
+            "--ignore-not-found".to_string(),
+        ]);
+        exec::run("kubectl", &args)?;
+        Ok(())
+    }
 }

@@ -172,4 +172,108 @@ impl DockerApi {
         let resp = check_status(reqwest::get(format!("{base}/info")).await.map_err(|e| e.to_string())?).await?;
         resp.text().await.map_err(|e| e.to_string())
     }
+
+    /// Pulls `image` if not already present, matching the CLI path's implicit
+    /// `docker run` pull — the Engine API never pulls automatically.
+    async fn pull_image(host: &str, image: &str) -> Result<(), String> {
+        let base = base_url(host)?;
+        let (name, tag) = image.rsplit_once(':').unwrap_or((image, "latest"));
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("{base}/images/create?fromImage={name}&tag={tag}"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        check_status(resp).await?;
+        Ok(())
+    }
+
+    /// Creates and starts a detached single-node KRaft-mode Kafka broker via
+    /// the Engine API — no `docker.exe` required. `extra_env` entries override
+    /// the built-in defaults with the same key.
+    pub async fn run_kafka_container(
+        host: &str,
+        container_name: &str,
+        image: &str,
+        port: u16,
+        extra_env: &[(String, String)],
+    ) -> Result<(), String> {
+        Self::pull_image(host, image).await?;
+        let base = base_url(host)?;
+
+        let overridden: std::collections::HashSet<&str> =
+            extra_env.iter().map(|(k, _)| k.as_str()).collect();
+        let mut env: Vec<String> = Vec::new();
+        let defaults: Vec<(&str, String)> = vec![
+            ("KAFKA_NODE_ID", "1".to_string()),
+            ("KAFKA_PROCESS_ROLES", "broker,controller".to_string()),
+            ("KAFKA_LISTENERS", "PLAINTEXT://:9092,CONTROLLER://:9093".to_string()),
+            ("KAFKA_ADVERTISED_LISTENERS", format!("PLAINTEXT://localhost:{port}")),
+            ("KAFKA_CONTROLLER_QUORUM_VOTERS", "1@localhost:9093".to_string()),
+            ("KAFKA_CONTROLLER_LISTENER_NAMES", "CONTROLLER".to_string()),
+            ("KAFKA_INTER_BROKER_LISTENER_NAME", "PLAINTEXT".to_string()),
+            ("CLUSTER_ID", "MkU3OEVBNTcwNTJENDM2Qk".to_string()),
+        ];
+        for (k, v) in defaults {
+            if !overridden.contains(k) {
+                env.push(format!("{k}={v}"));
+            }
+        }
+        for (k, v) in extra_env {
+            env.push(format!("{k}={v}"));
+        }
+
+        let body = serde_json::json!({
+            "Image": image,
+            "Env": env,
+            "ExposedPorts": { "9092/tcp": {} },
+            "HostConfig": {
+                "PortBindings": { "9092/tcp": [{ "HostPort": port.to_string() }] },
+                "Binds": [format!("{container_name}-data:/var/lib/kafka/data")],
+            },
+        });
+
+        let client = reqwest::Client::new();
+        let create_resp = client
+            .post(format!("{base}/containers/create?name={container_name}"))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let create_resp = check_status(create_resp).await?;
+        let created: Value = create_resp.json().await.map_err(|e| e.to_string())?;
+        let id = created
+            .get("Id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Docker API did not return a container id.".to_string())?;
+
+        let start_resp = client
+            .post(format!("{base}/containers/{id}/start"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        check_status(start_resp).await?;
+        Ok(())
+    }
+
+    pub async fn stop_container(host: &str, name: &str) -> Result<(), String> {
+        let base = base_url(host)?;
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("{base}/containers/{name}/stop"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        check_status(resp).await?;
+        Ok(())
+    }
+
+    /// Best-effort volume removal; a missing volume is not an error since a
+    /// fresh start never created one yet.
+    pub async fn remove_volume(host: &str, volume: &str) -> Result<(), String> {
+        let base = base_url(host)?;
+        let client = reqwest::Client::new();
+        let _ = client.delete(format!("{base}/volumes/{volume}")).send().await;
+        Ok(())
+    }
 }

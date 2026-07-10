@@ -59,4 +59,31 @@ impl Helm {
         exec::run("helm", &args)?;
         Ok(())
     }
+
+    /// Installs (or upgrades an existing release in place) a chart, creating
+    /// the namespace if it doesn't exist yet.
+    pub fn install(
+        context: &str,
+        namespace: &str,
+        release: &str,
+        chart: &str,
+        values: &[(String, String)],
+    ) -> Result<String, String> {
+        let mut args = vec![
+            "upgrade".to_string(),
+            "--install".to_string(),
+            release.to_string(),
+            chart.to_string(),
+            "--kube-context".to_string(),
+            context.to_string(),
+            "-n".to_string(),
+            namespace.to_string(),
+            "--create-namespace".to_string(),
+        ];
+        for (k, v) in values {
+            args.push("--set".to_string());
+            args.push(format!("{k}={v}"));
+        }
+        Ok(exec::run("helm", &args)?.stdout)
+    }
 }

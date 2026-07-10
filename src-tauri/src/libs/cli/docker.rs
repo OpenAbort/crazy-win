@@ -71,4 +71,80 @@ impl Docker {
         args.extend(["info".to_string(), "--format".to_string(), "json".to_string()]);
         Ok(exec::run("docker", &args)?.stdout)
     }
+
+    /// Runs a detached single-node KRaft-mode Kafka broker (no separate
+    /// Zookeeper container needed). `extra_env` entries override the built-in
+    /// defaults with the same key.
+    pub fn run_kafka_container(
+        host: &str,
+        container_name: &str,
+        image: &str,
+        port: u16,
+        extra_env: &[(String, String)],
+    ) -> Result<String, String> {
+        let mut args = base_args(host);
+        args.extend([
+            "run".to_string(),
+            "-d".to_string(),
+            "--name".to_string(),
+            container_name.to_string(),
+            "-p".to_string(),
+            format!("{port}:9092"),
+        ]);
+
+        let overridden: std::collections::HashSet<&str> =
+            extra_env.iter().map(|(k, _)| k.as_str()).collect();
+        let defaults: Vec<(String, String)> = vec![
+            ("KAFKA_NODE_ID".to_string(), "1".to_string()),
+            ("KAFKA_PROCESS_ROLES".to_string(), "broker,controller".to_string()),
+            (
+                "KAFKA_LISTENERS".to_string(),
+                "PLAINTEXT://:9092,CONTROLLER://:9093".to_string(),
+            ),
+            (
+                "KAFKA_ADVERTISED_LISTENERS".to_string(),
+                format!("PLAINTEXT://localhost:{port}"),
+            ),
+            (
+                "KAFKA_CONTROLLER_QUORUM_VOTERS".to_string(),
+                "1@localhost:9093".to_string(),
+            ),
+            ("KAFKA_CONTROLLER_LISTENER_NAMES".to_string(), "CONTROLLER".to_string()),
+            ("KAFKA_INTER_BROKER_LISTENER_NAME".to_string(), "PLAINTEXT".to_string()),
+            ("CLUSTER_ID".to_string(), "MkU3OEVBNTcwNTJENDM2Qk".to_string()),
+        ];
+        for (k, v) in defaults {
+            if !overridden.contains(k.as_str()) {
+                args.push("-e".to_string());
+                args.push(format!("{k}={v}"));
+            }
+        }
+        for (k, v) in extra_env {
+            args.push("-e".to_string());
+            args.push(format!("{k}={v}"));
+        }
+
+        args.push("-v".to_string());
+        args.push(format!("{container_name}-data:/var/lib/kafka/data"));
+        args.push(image.to_string());
+
+        Ok(exec::run("docker", &args)?.stdout)
+    }
+
+    /// Stops (but does not remove) a running container by name.
+    pub fn stop_container(host: &str, name: &str) -> Result<(), String> {
+        let mut args = base_args(host);
+        args.extend(["stop".to_string(), name.to_string()]);
+        exec::run("docker", &args)?;
+        Ok(())
+    }
+
+    /// Best-effort volume removal; a missing volume is not an error since a
+    /// fresh start never created one yet.
+    pub fn remove_volume(host: &str, volume: &str) -> Result<(), String> {
+        let mut args = base_args(host);
+        args.extend(["volume".to_string(), "rm".to_string(), volume.to_string()]);
+        let _ = exec::run("docker", &args);
+        Ok(())
+    }
 }
