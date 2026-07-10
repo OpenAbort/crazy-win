@@ -1,9 +1,13 @@
 import type { ComponentType } from "react";
 import {
+  Anchor,
   AppWindow,
+  Boxes,
   Braces,
+  Container,
   FileText,
   GitCompareArrows,
+  Layers,
   Network,
   Settings2,
   Ship,
@@ -17,8 +21,11 @@ import { Formatter } from "@/features/dev-tools/formatter";
 import { TextComparer } from "@/features/dev-tools/text-comparer";
 import { MarkdownViewer } from "@/features/dev-tools/markdown-viewer";
 import { HelmFormatter } from "@/features/dev-tools/helm-formatter";
+import { DockerManager } from "@/features/dev-environment/docker-manager";
+import { KubernetesManager } from "@/features/dev-environment/kubernetes-manager";
+import { HelmReleases } from "@/features/dev-environment/helm-releases";
 
-export type SectionId = "window-manager" | "dev-tools";
+export type SectionId = "window-manager" | "dev-tools" | "dev-environment";
 
 export type ToolId =
   | "hosts-editor"
@@ -26,7 +33,10 @@ export type ToolId =
   | "formatter"
   | "text-comparer"
   | "markdown-viewer"
-  | "helm-formatter";
+  | "helm-formatter"
+  | "docker-manager"
+  | "kubernetes-manager"
+  | "helm-releases";
 
 export interface SectionDef {
   id: SectionId;
@@ -46,6 +56,7 @@ export interface ToolDef {
 export const sections: SectionDef[] = [
   { id: "window-manager", label: "Window Manager", icon: AppWindow },
   { id: "dev-tools", label: "Dev Tools", icon: Wrench },
+  { id: "dev-environment", label: "Dev Environment", icon: Layers },
 ];
 
 export const tools: ToolDef[] = [
@@ -96,6 +107,30 @@ export const tools: ToolDef[] = [
     icon: Ship,
     section: "dev-tools",
     Component: HelmFormatter,
+  },
+  {
+    id: "docker-manager",
+    label: "Docker",
+    description: "Browse, inspect, and remove Docker containers",
+    icon: Container,
+    section: "dev-environment",
+    Component: DockerManager,
+  },
+  {
+    id: "kubernetes-manager",
+    label: "Kubernetes",
+    description: "Browse and manage pods, deployments, and services",
+    icon: Boxes,
+    section: "dev-environment",
+    Component: KubernetesManager,
+  },
+  {
+    id: "helm-releases",
+    label: "Helm",
+    description: "View and manage installed Helm releases",
+    icon: Anchor,
+    section: "dev-environment",
+    Component: HelmReleases,
   },
 ];
 
