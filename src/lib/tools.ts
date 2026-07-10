@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import { lazy, type ComponentType } from "react";
 import {
   Anchor,
   AppWindow,
@@ -15,15 +15,35 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { HostsEditor } from "@/features/window-manager/hosts-editor";
-import { EnvEditor } from "@/features/window-manager/env-editor";
-import { Formatter } from "@/features/dev-tools/formatter";
-import { TextComparer } from "@/features/dev-tools/text-comparer";
-import { MarkdownViewer } from "@/features/dev-tools/markdown-viewer";
-import { HelmFormatter } from "@/features/dev-tools/helm-formatter";
-import { DockerManager } from "@/features/dev-environment/docker-manager";
-import { KubernetesManager } from "@/features/dev-environment/kubernetes-manager";
-import { HelmReleases } from "@/features/dev-environment/helm-releases";
+const HostsEditor = lazy(() =>
+  import("@/features/window-manager/hosts-editor").then((m) => ({ default: m.HostsEditor })),
+);
+const EnvEditor = lazy(() =>
+  import("@/features/window-manager/env-editor").then((m) => ({ default: m.EnvEditor })),
+);
+const Formatter = lazy(() =>
+  import("@/features/dev-tools/formatter").then((m) => ({ default: m.Formatter })),
+);
+const TextComparer = lazy(() =>
+  import("@/features/dev-tools/text-comparer").then((m) => ({ default: m.TextComparer })),
+);
+const MarkdownViewer = lazy(() =>
+  import("@/features/dev-tools/markdown-viewer").then((m) => ({ default: m.MarkdownViewer })),
+);
+const HelmFormatter = lazy(() =>
+  import("@/features/dev-tools/helm-formatter").then((m) => ({ default: m.HelmFormatter })),
+);
+const DockerManager = lazy(() =>
+  import("@/features/dev-environment/docker-manager").then((m) => ({ default: m.DockerManager })),
+);
+const KubernetesManager = lazy(() =>
+  import("@/features/dev-environment/kubernetes-manager").then((m) => ({
+    default: m.KubernetesManager,
+  })),
+);
+const HelmReleases = lazy(() =>
+  import("@/features/dev-environment/helm-releases").then((m) => ({ default: m.HelmReleases })),
+);
 
 export type SectionId = "window-manager" | "dev-tools" | "dev-environment";
 

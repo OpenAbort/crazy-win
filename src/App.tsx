@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 
 import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -17,7 +17,9 @@ function App() {
       <SidebarInset className="min-h-0">
         <AppHeader activeTool={activeTool} />
         <main className="flex min-h-0 flex-1 flex-col overflow-auto">
-          <ActiveComponent />
+          <Suspense fallback={null}>
+            <ActiveComponent />
+          </Suspense>
         </main>
       </SidebarInset>
     </SidebarProvider>
