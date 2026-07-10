@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   Container,
   LoaderCircle,
@@ -14,6 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmDeleteDialog } from "@/features/dev-environment/confirm-delete-dialog";
 import {
@@ -29,7 +31,7 @@ import {
   setDockerMode,
   type ConnectionMode,
 } from "@/features/dev-environment/dev-environment-store";
-import { JsonDetailPane } from "@/features/dev-environment/json-detail-pane";
+import { JsonDetailPane, SearchToolbar, useContentSearch } from "@/features/dev-environment/json-detail-pane";
 
 export function DockerManager() {
   const [host, setHost] = useState("");
@@ -45,6 +47,16 @@ export function DockerManager() {
   const [inspectText, setInspectText] = useState("");
   const [logsText, setLogsText] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<DockerContainerSummary | null>(null);
+
+  const [activeDetailTab, setActiveDetailTab] = useState("inspect");
+  const [live, setLive] = useState(false);
+  const streamIdRef = useRef<number | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const detailSearch = useContentSearch(
+    activeDetailTab === "logs" ? "text" : "json",
+    activeDetailTab === "logs" ? logsText : inspectText,
+  );
 
   const filtered = useMemo(() => filterContainers(containers, query), [containers, query]);
   const selected = useMemo(
@@ -123,6 +135,67 @@ export function DockerManager() {
       setLogsText(`Failed to load logs: ${String(e)}`);
     }
   }
+
+  // Listen once for streamed log lines (CLI mode) and only apply the ones that
+  // belong to the currently-active stream, since switching containers/toggling
+  // Live off can leave a stop request in flight.
+  useEffect(() => {
+    const unlistenLine = listen<{ streamId: number; line: string }>("docker-log-line", (event) => {
+      const { streamId, line } = event.payload;
+      if (streamId === streamIdRef.current) {
+        setLogsText((t) => (t ? `${t}\n${line}` : line));
+      }
+    });
+    const unlistenClosed = listen<number>("docker-log-closed", (event) => {
+      if (event.payload === streamIdRef.current) {
+        streamIdRef.current = null;
+        setLive(false);
+      }
+    });
+    return () => {
+      void unlistenLine.then((f) => f());
+      void unlistenClosed.then((f) => f());
+    };
+  }, []);
+
+  // Starts/stops the live tail whenever `live` is toggled or the selected
+  // container changes while it's on; CLI mode streams via Tauri events, API
+  // mode polls the existing one-shot logs command instead (see plan).
+  useEffect(() => {
+    if (!live || !selected) return;
+    const containerId = selected.ID;
+    let cancelled = false;
+
+    if (mode === "cli") {
+      void (async () => {
+        try {
+          const id = await invoke<number>("docker_start_log_stream", { host, id: containerId, tail: 300, mode });
+          if (cancelled) {
+            void invoke("docker_stop_log_stream", { streamId: id });
+            return;
+          }
+          streamIdRef.current = id;
+        } catch (e) {
+          setLogsText((t) => `${t ? `${t}\n` : ""}Failed to start live tail: ${String(e)}`);
+          setLive(false);
+        }
+      })();
+    } else {
+      pollRef.current = setInterval(() => void loadLogs(containerId), 2000);
+    }
+
+    return () => {
+      cancelled = true;
+      if (streamIdRef.current !== null) {
+        void invoke("docker_stop_log_stream", { streamId: streamIdRef.current });
+        streamIdRef.current = null;
+      }
+      if (pollRef.current !== null) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [live, selected?.ID, mode, host]);
 
   async function handleRemove(force: boolean) {
     if (!deleteTarget) return;
@@ -250,18 +323,52 @@ export function DockerManager() {
 
           <div className="flex min-h-0 flex-col gap-1.5">
             {selected ? (
-              <Tabs defaultValue="inspect" className="flex min-h-0 flex-1 flex-col gap-1.5">
-                <TabsList>
-                  <TabsTrigger value="inspect">Inspect</TabsTrigger>
-                  <TabsTrigger value="logs">Logs</TabsTrigger>
-                </TabsList>
+              <Tabs
+                value={activeDetailTab}
+                onValueChange={setActiveDetailTab}
+                className="flex min-h-0 flex-1 flex-col gap-1.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <TabsList>
+                    <TabsTrigger value="inspect">Inspect</TabsTrigger>
+                    <TabsTrigger value="logs">Logs</TabsTrigger>
+                  </TabsList>
+                  <div className="flex items-center gap-2">
+                    {activeDetailTab === "logs" && (
+                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className={`size-1.5 rounded-full bg-emerald-500 ${live ? "animate-pulse" : "invisible"}`} />
+                        Live
+                        <Switch
+                          checked={live}
+                          onCheckedChange={setLive}
+                          size="sm"
+                          disabled={!selected}
+                        />
+                      </label>
+                    )}
+                    <SearchToolbar
+                      query={detailSearch.query}
+                      onQueryChange={detailSearch.setQuery}
+                      matchCount={detailSearch.matchCount}
+                      currentMatch={detailSearch.currentMatch}
+                      onStep={detailSearch.stepMatch}
+                    />
+                  </div>
+                </div>
                 <TabsContent value="inspect" className="min-h-0 flex-1">
-                  <JsonDetailPane language="json" content={inspectText} />
+                  <JsonDetailPane
+                    content={inspectText}
+                    segments={detailSearch.segments}
+                    currentMatch={detailSearch.currentMatch}
+                  />
                 </TabsContent>
                 <TabsContent value="logs" className="min-h-0 flex-1">
-                  <pre className="h-full min-h-0 flex-1 overflow-auto rounded-lg border bg-transparent px-2.5 py-2 font-mono text-xs whitespace-pre-wrap break-words">
-                    {logsText || "No logs"}
-                  </pre>
+                  <JsonDetailPane
+                    content={logsText}
+                    segments={detailSearch.segments}
+                    currentMatch={detailSearch.currentMatch}
+                    emptyLabel="No logs"
+                  />
                 </TabsContent>
               </Tabs>
             ) : (

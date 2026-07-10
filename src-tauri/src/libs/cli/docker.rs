@@ -1,3 +1,5 @@
+use std::process::Child;
+
 use super::exec;
 
 fn base_args(host: &str) -> Vec<String> {
@@ -36,6 +38,20 @@ impl Docker {
         args.push(id.to_string());
         let out = exec::run("docker", &args)?;
         Ok(format!("{}{}", out.stdout, out.stderr))
+    }
+
+    /// Spawns `docker logs -f`, leaving the child running so its stdout can be
+    /// tailed line-by-line by the caller.
+    pub fn stream_logs(host: &str, id: &str, tail: Option<u32>) -> Result<Child, String> {
+        let mut args = base_args(host);
+        args.push("logs".to_string());
+        args.push("-f".to_string());
+        if let Some(n) = tail {
+            args.push("--tail".to_string());
+            args.push(n.to_string());
+        }
+        args.push(id.to_string());
+        exec::spawn_piped("docker", &args)
     }
 
     pub fn remove_container(host: &str, id: &str, force: bool) -> Result<(), String> {

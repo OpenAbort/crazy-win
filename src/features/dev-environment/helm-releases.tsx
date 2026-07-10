@@ -16,7 +16,7 @@ import {
 } from "@/features/dev-environment/dev-environment-store";
 import { parseReleaseList, type HelmReleaseSummary } from "@/features/dev-environment/helm-releases-logic";
 import { parseContextNames, parseNamespaceList } from "@/features/dev-environment/kubernetes-manager-logic";
-import { JsonDetailPane } from "@/features/dev-environment/json-detail-pane";
+import { JsonDetailPane, SearchToolbar, useContentSearch } from "@/features/dev-environment/json-detail-pane";
 
 const ALL_NAMESPACES = "__all__";
 
@@ -39,6 +39,9 @@ export function HelmReleases() {
     () => releases.find((r) => r.name === selectedName) ?? null,
     [releases, selectedName],
   );
+
+  const valuesSearch = useContentSearch("yaml", valuesText);
+  const statusSearch = useContentSearch("json", statusText);
 
   useEffect(() => {
     void (async () => {
@@ -258,11 +261,33 @@ export function HelmReleases() {
                   <TabsTrigger value="values">Values</TabsTrigger>
                   <TabsTrigger value="status">Status</TabsTrigger>
                 </TabsList>
-                <TabsContent value="values" className="min-h-0 flex-1">
-                  <JsonDetailPane language="yaml" content={valuesText} />
+                <TabsContent value="values" className="flex min-h-0 flex-1 flex-col gap-1.5">
+                  <SearchToolbar
+                    query={valuesSearch.query}
+                    onQueryChange={valuesSearch.setQuery}
+                    matchCount={valuesSearch.matchCount}
+                    currentMatch={valuesSearch.currentMatch}
+                    onStep={valuesSearch.stepMatch}
+                  />
+                  <JsonDetailPane
+                    content={valuesText}
+                    segments={valuesSearch.segments}
+                    currentMatch={valuesSearch.currentMatch}
+                  />
                 </TabsContent>
-                <TabsContent value="status" className="min-h-0 flex-1">
-                  <JsonDetailPane language="json" content={statusText} />
+                <TabsContent value="status" className="flex min-h-0 flex-1 flex-col gap-1.5">
+                  <SearchToolbar
+                    query={statusSearch.query}
+                    onQueryChange={statusSearch.setQuery}
+                    matchCount={statusSearch.matchCount}
+                    currentMatch={statusSearch.currentMatch}
+                    onStep={statusSearch.stepMatch}
+                  />
+                  <JsonDetailPane
+                    content={statusText}
+                    segments={statusSearch.segments}
+                    currentMatch={statusSearch.currentMatch}
+                  />
                 </TabsContent>
               </Tabs>
             ) : (

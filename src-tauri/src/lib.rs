@@ -1,5 +1,10 @@
 mod libs;
 
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+
 use libs::api::docker_api::DockerApi;
 use libs::api::k8s_api::K8sApi;
 use libs::cli::docker::Docker;
@@ -7,6 +12,22 @@ use libs::cli::helm::Helm;
 use libs::cli::kubectl::Kubectl;
 use libs::io::env_vars::EnvVars;
 use libs::io::hosts_file::HostsFile;
+use tauri::Emitter;
+
+/// Tracks in-flight `docker logs -f` child processes so a stream can be
+/// stopped (killed) later by id, keyed by an id handed back to the frontend.
+#[derive(Default)]
+struct LogStreams {
+    next_id: AtomicU64,
+    children: Mutex<HashMap<u64, std::process::Child>>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LogLine {
+    stream_id: u64,
+    line: String,
+}
 
 /// Read the raw contents of the system hosts file.
 #[tauri::command]
@@ -147,6 +168,57 @@ async fn docker_info(host: String, mode: String) -> Result<String, String> {
     }
 }
 
+/// Starts a `docker logs -f` tail (CLI mode only — API mode live-tails via
+/// polling from the frontend instead) and streams lines back as
+/// `docker-log-line` events, tagged with the returned stream id.
+#[tauri::command]
+async fn docker_start_log_stream(
+    host: String,
+    id: String,
+    tail: Option<u32>,
+    mode: String,
+    app: tauri::AppHandle,
+    streams: tauri::State<'_, LogStreams>,
+) -> Result<u64, String> {
+    if mode != "cli" {
+        return Err("Live tailing is only supported in CLI mode.".to_string());
+    }
+
+    let mut child = off_main_thread(move || Docker::stream_logs(&host, &id, tail)).await?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Failed to capture log stream output.".to_string())?;
+
+    let stream_id = streams.next_id.fetch_add(1, Ordering::SeqCst);
+    streams.children.lock().unwrap().insert(stream_id, child);
+
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            match line {
+                Ok(line) => {
+                    let _ = app.emit("docker-log-line", LogLine { stream_id, line });
+                }
+                Err(_) => break,
+            }
+        }
+        let _ = app.emit("docker-log-closed", stream_id);
+    });
+
+    Ok(stream_id)
+}
+
+/// Kills the child process backing `stream_id`, if still running. Safe to
+/// call on an already-finished stream (or an unknown id) — both are no-ops.
+#[tauri::command]
+fn docker_stop_log_stream(stream_id: u64, streams: tauri::State<'_, LogStreams>) -> Result<(), String> {
+    if let Some(mut child) = streams.children.lock().unwrap().remove(&stream_id) {
+        let _ = child.kill();
+    }
+    Ok(())
+}
+
 // --- Kubernetes ---
 // Same `mode` convention. "api" mode reads the local kubeconfig directly and
 // talks to the API server via reqwest; it only supports client-cert/bearer-token
@@ -236,6 +308,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .manage(LogStreams::default())
         .invoke_handler(tauri::generate_handler![
             read_hosts,
             write_hosts,
@@ -247,6 +320,8 @@ pub fn run() {
             docker_container_logs,
             docker_remove_container,
             docker_info,
+            docker_start_log_stream,
+            docker_stop_log_stream,
             kube_list_contexts,
             kube_current_context,
             kube_list_namespaces,

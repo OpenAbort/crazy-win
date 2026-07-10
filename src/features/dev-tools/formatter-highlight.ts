@@ -1,5 +1,9 @@
 import type { FormatLanguage } from "@/features/dev-tools/formatter-logic";
 
+/// Superset of `FormatLanguage` for highlighting-only consumers (e.g. plain
+/// log text) that aren't part of the Formatter tool's own language selector.
+export type HighlightLanguage = FormatLanguage | "text";
+
 export type TokenKind =
   | "key"
   | "string"
@@ -161,7 +165,7 @@ function tokenizeYaml(output: string): Token[] {
   return tokens;
 }
 
-export function tokenize(language: FormatLanguage, output: string): Token[] {
+export function tokenize(language: HighlightLanguage, output: string): Token[] {
   if (!output) return [];
   switch (language) {
     case "json":
@@ -170,6 +174,8 @@ export function tokenize(language: FormatLanguage, output: string): Token[] {
       return tokenizeXml(output);
     case "yaml":
       return tokenizeYaml(output);
+    case "text":
+      return [{ text: output, kind: "text" }];
   }
 }
 
