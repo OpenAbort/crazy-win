@@ -30,10 +30,12 @@ import {
 import { parseContextNames } from "@/features/dev-environment/kubernetes-manager-logic";
 import type { KafkaBrokerSummary, KafkaTopicSummary } from "@/features/dev-environment/kafka-manager-logic";
 
-type Phase = "loading" | "start" | "connected";
+type Phase = "start" | "connected";
 
 export function KafkaManager() {
-  const [phase, setPhase] = useState<Phase>("loading");
+  // Optimistic default: assume no broker yet rather than blocking on a
+  // full-screen spinner while the store loads and detection runs.
+  const [phase, setPhase] = useState<Phase>("start");
   const [error, setError] = useState<string | null>(null);
 
   const [dockerHost, setDockerHost] = useState("");
@@ -59,6 +61,9 @@ export function KafkaManager() {
   const [brokerList, setBrokerList] = useState<KafkaBrokerSummary[]>([]);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [topicsLoading, setTopicsLoading] = useState(false);
+  /// True while a background Docker/kubectl/Helm scan is reconciling the
+  /// optimistic UI guess — never blocks interaction, just annotates it.
+  const [checking, setChecking] = useState(false);
 
   const selectedTopicObj = useMemo(
     () => topics.find((t) => t.name === selectedTopic) ?? null,
@@ -90,8 +95,66 @@ export function KafkaManager() {
     }
   }
 
+  /// Single fast RPC, bounded by a short timeout — used to check whether a
+  /// previously-known broker is still reachable before falling back to a full
+  /// Docker/kubectl/Helm scan.
+  async function pingBrokers(brokersToCheck: string, timeoutMs = 1500): Promise<boolean> {
+    try {
+      await Promise.race([
+        invoke("kafka_list_topics", { brokers: brokersToCheck }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs)),
+      ]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function loadKubeContexts(): Promise<{ contexts: string[]; currentContext: string }> {
+    try {
+      const rawContexts = await invoke<string>("kube_list_contexts", { mode: "cli" });
+      const contexts = parseContextNames(rawContexts);
+      const currentContext = await invoke<string>("kube_current_context", { mode: "cli" }).catch(
+        () => contexts[0] ?? "",
+      );
+      return { contexts, currentContext: currentContext.trim() || contexts[0] || "" };
+    } catch {
+      // Kubernetes CLI may not be configured at all — Helm target just won't be usable.
+      return { contexts: [], currentContext: "" };
+    }
+  }
+
+  /// Full Docker/kubectl/Helm scan — slow (real CLI process spawns), so this
+  /// only ever runs in the background after an optimistic guess is already
+  /// on screen. Reconciles the guess once real detection resolves.
+  async function reconcileFromScratch(host: string, mode: ConnectionMode, savedTarget: KafkaTarget) {
+    const [{ contexts, currentContext }, detectedDocker] = await Promise.all([
+      loadKubeContexts(),
+      detectDocker(host, mode).catch(() => null),
+    ]);
+    setKubeContexts(contexts);
+    setHelmContext(currentContext);
+    const detectedHelm = await detectHelm(currentContext).catch(() => null);
+
+    const preferred = savedTarget === "docker" ? detectedDocker : detectedHelm;
+    const fallback = detectedDocker ?? detectedHelm;
+    const resolvedBrokers = preferred?.brokers || fallback?.brokers || "";
+
+    if (resolvedBrokers) {
+      setBrokers(resolvedBrokers);
+      if (!preferred && fallback) {
+        setTarget(detectedDocker ? "docker" : "helm");
+      }
+      void setKafkaBrokers(resolvedBrokers);
+      setPhase("connected");
+    } else {
+      setBrokers("");
+      void setKafkaBrokers("");
+      setPhase("start");
+    }
+  }
+
   async function initialize() {
-    setPhase("loading");
     setError(null);
     try {
       const [host, mode, savedTarget, savedDockerConfig, savedHelmConfig, savedBrokers] = await Promise.all([
@@ -108,39 +171,36 @@ export function KafkaManager() {
       setDockerConfig(savedDockerConfig);
       setHelmConfig(savedHelmConfig);
 
-      let contexts: string[] = [];
-      let currentContext = "";
-      try {
-        const rawContexts = await invoke<string>("kube_list_contexts", { mode: "cli" });
-        contexts = parseContextNames(rawContexts);
-        currentContext = await invoke<string>("kube_current_context", { mode: "cli" }).catch(() => contexts[0] ?? "");
-      } catch {
-        // Kubernetes CLI may not be configured at all — Helm target just won't be usable.
-      }
-      setKubeContexts(contexts);
-      setHelmContext(currentContext.trim() || contexts[0] || "");
-
-      const [detectedDocker, detectedHelm] = await Promise.allSettled([
-        detectDocker(host, mode),
-        detectHelm(currentContext.trim() || contexts[0] || ""),
-      ]).then((results) => results.map((r) => (r.status === "fulfilled" ? r.value : null)));
-
-      const preferred = savedTarget === "docker" ? detectedDocker : detectedHelm;
-      const fallback = detectedDocker ?? detectedHelm;
-      const resolvedBrokers = savedBrokers || preferred?.brokers || fallback?.brokers || "";
-
-      if (resolvedBrokers) {
-        setBrokers(resolvedBrokers);
-        if (!preferred && fallback) {
-          setTarget(detectedDocker ? "docker" : "helm");
-        }
+      if (savedBrokers) {
+        // Optimistic: render the remembered broker immediately, don't make the
+        // user wait on a CLI scan just to confirm what we already believe.
+        setBrokers(savedBrokers);
         setPhase("connected");
-      } else {
-        setPhase("start");
+        setChecking(true);
+        const stillGood = await pingBrokers(savedBrokers);
+        if (stillGood) {
+          void loadKubeContexts().then(({ contexts, currentContext }) => {
+            setKubeContexts(contexts);
+            setHelmContext(currentContext);
+          });
+        } else {
+          await reconcileFromScratch(host, mode, savedTarget);
+        }
+        setChecking(false);
+        return;
       }
+
+      // No remembered broker — optimistically assume none is running yet so
+      // the Start panel appears immediately, then correct in the background
+      // if a broker turns out to already be reachable.
+      setPhase("start");
+      setChecking(true);
+      await reconcileFromScratch(host, mode, savedTarget);
+      setChecking(false);
     } catch (e) {
       setError(String(e));
       setPhase("start");
+      setChecking(false);
     }
   }
 
@@ -270,10 +330,10 @@ export function KafkaManager() {
           </Alert>
         )}
 
-        {phase === "loading" && (
-          <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
-            <LoaderCircle className="animate-spin" />
-            Detecting a Kafka broker...
+        {checking && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <LoaderCircle className="size-3 animate-spin" />
+            {phase === "start" ? "Checking for a running broker..." : "Verifying broker connection..."}
           </div>
         )}
 

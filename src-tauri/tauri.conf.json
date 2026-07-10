@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "DevBox",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "identifier": "com.admin.crazy-win",
   "build": {
     "beforeDevCommand": "bun run dev",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:5350",
     "beforeBuildCommand": "bun run build",
     "frontendDist": "../dist"
   },
