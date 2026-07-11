@@ -17,6 +17,7 @@ use libs::kafka::consumer::{self, KafkaConsumeStreams};
 use libs::kafka::lifecycle::KafkaLifecycle;
 use libs::kafka::produce::KafkaProducer;
 use libs::kafka::types::brokers_to_summaries;
+use libs::wsl::WslSessions;
 use tauri::Emitter;
 
 /// Tracks in-flight `docker logs -f` child processes so a stream can be
@@ -451,6 +452,41 @@ async fn kafka_produce(
     KafkaProducer::produce(&brokers, &topic, partition, key, value, headers).await
 }
 
+#[tauri::command]
+async fn wsl_list_distros() -> Result<Vec<String>, String> {
+    off_main_thread(libs::wsl::list_distros).await
+}
+
+#[tauri::command]
+async fn wsl_windows_path_to_wsl(path: String) -> Result<String, String> {
+    off_main_thread(move || libs::wsl::windows_path_to_wsl(&path)).await
+}
+
+#[tauri::command]
+fn wsl_start_session(
+    distro: Option<String>,
+    cwd: Option<String>,
+    app: tauri::AppHandle,
+    sessions: tauri::State<'_, WslSessions>,
+) -> Result<u64, String> {
+    sessions.start(distro, cwd, app)
+}
+
+#[tauri::command]
+fn wsl_write(session_id: u64, data: String, sessions: tauri::State<'_, WslSessions>) -> Result<(), String> {
+    sessions.write(session_id, &data)
+}
+
+#[tauri::command]
+fn wsl_resize(session_id: u64, cols: u16, rows: u16, sessions: tauri::State<'_, WslSessions>) -> Result<(), String> {
+    sessions.resize(session_id, cols, rows)
+}
+
+#[tauri::command]
+fn wsl_close_session(session_id: u64, sessions: tauri::State<'_, WslSessions>) -> Result<(), String> {
+    sessions.close(session_id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -459,6 +495,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(LogStreams::default())
         .manage(KafkaConsumeStreams::default())
+        .manage(WslSessions::default())
         .invoke_handler(tauri::generate_handler![
             read_hosts,
             write_hosts,
@@ -496,7 +533,13 @@ pub fn run() {
             kafka_purge_topic,
             kafka_start_consume_stream,
             kafka_stop_consume_stream,
-            kafka_produce
+            kafka_produce,
+            wsl_list_distros,
+            wsl_windows_path_to_wsl,
+            wsl_start_session,
+            wsl_write,
+            wsl_resize,
+            wsl_close_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

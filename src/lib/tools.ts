@@ -11,6 +11,7 @@ import {
   Network,
   Settings2,
   Ship,
+  SquareTerminal,
   Waypoints,
   Wrench,
   type LucideIcon,
@@ -48,6 +49,9 @@ const HelmReleases = lazy(() =>
 const KafkaManager = lazy(() =>
   import("@/features/dev-environment/kafka-manager").then((m) => ({ default: m.KafkaManager })),
 );
+const WslTerminal = lazy(() =>
+  import("@/features/dev-environment/wsl-terminal").then((m) => ({ default: m.WslTerminal })),
+);
 
 export type SectionId = "window-manager" | "dev-tools" | "dev-environment";
 
@@ -61,7 +65,8 @@ export type ToolId =
   | "docker-manager"
   | "kubernetes-manager"
   | "helm-releases"
-  | "kafka-manager";
+  | "kafka-manager"
+  | "wsl-terminal";
 
 export interface SectionDef {
   id: SectionId;
@@ -164,6 +169,14 @@ export const tools: ToolDef[] = [
     icon: Waypoints,
     section: "dev-environment",
     Component: KafkaManager,
+  },
+  {
+    id: "wsl-terminal",
+    label: "WSL Terminal",
+    description: "Interactive WSL shell with tabs, quick commands, and working-directory launch",
+    icon: SquareTerminal,
+    section: "dev-environment",
+    Component: WslTerminal,
   },
 ];
 
