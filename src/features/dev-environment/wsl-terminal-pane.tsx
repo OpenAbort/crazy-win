@@ -62,7 +62,15 @@ export function WslTerminalPane({ sessionId, active }: { sessionId: number; acti
     });
 
     let resizeTimeout: ReturnType<typeof setTimeout> | undefined;
-    const resizeObserver = new ResizeObserver(() => {
+    const resizeObserver = new ResizeObserver((entries) => {
+      // This tab (or an ancestor, e.g. the whole WSL Terminal tool when another
+      // tool is selected) may be hidden via `display: none` rather than
+      // unmounted, which collapses the box to 0x0 and still fires this
+      // observer. Fitting/resizing the real PTY to near-zero columns here
+      // desyncs the shell's own line-wrap/cursor tracking from what's on
+      // screen once shown again, so ignore resizes while not actually visible.
+      const { width, height } = entries[0].contentRect;
+      if (width === 0 || height === 0) return;
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
         fitAddon.fit();
@@ -89,12 +97,20 @@ export function WslTerminalPane({ sessionId, active }: { sessionId: number; acti
   }, [sessionId]);
 
   useEffect(() => {
-    if (active) {
-      termRef.current?.focus();
-      // A tab that was hidden may have missed resize events; re-fit on show.
+    if (!active) return;
+    // The container may have just gone from `display: none` to visible in
+    // this same render, so its layout box isn't settled yet on this tick —
+    // wait a frame before measuring, otherwise fit() reads a stale 0x0 size.
+    const raf = requestAnimationFrame(() => {
+      const container = containerRef.current;
+      const term = termRef.current;
+      if (!container || !term || container.clientWidth === 0 || container.clientHeight === 0) return;
       fitAddonRef.current?.fit();
-    }
-  }, [active]);
+      void invoke("wsl_resize", { sessionId, cols: term.cols, rows: term.rows });
+      term.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [active, sessionId]);
 
   return (
     <div

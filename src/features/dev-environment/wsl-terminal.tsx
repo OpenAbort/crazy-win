@@ -147,7 +147,7 @@ export function WslTerminal() {
             />
 
             <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
-              <div className="min-h-0 flex-1 rounded-lg border p-2">
+              <div className="min-h-0 flex-1 overflow-hidden rounded-lg border">
                 {tabs.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
                     Open a new tab to start a shell
