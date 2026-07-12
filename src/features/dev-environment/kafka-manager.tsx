@@ -272,9 +272,19 @@ export function KafkaManager() {
     setError(null);
     try {
       if (target === "docker") {
-        await invoke("kafka_docker_stop", { host: dockerHost, containerName: dockerConfig.containerName, mode: dockerMode });
+        await invoke("kafka_docker_stop", {
+          host: dockerHost,
+          containerName: dockerConfig.containerName,
+          mode: dockerMode,
+          brokers,
+        });
       } else {
-        await invoke("kafka_helm_stop", { context: helmContext, namespace: helmConfig.namespace, release: helmConfig.release });
+        await invoke("kafka_helm_stop", {
+          context: helmContext,
+          namespace: helmConfig.namespace,
+          release: helmConfig.release,
+          brokers,
+        });
       }
       await setKafkaBrokers("");
       setBrokers("");
@@ -295,6 +305,7 @@ export function KafkaManager() {
           port: dockerConfig.port,
           extraEnv: dockerConfig.extraEnv,
           mode: dockerMode,
+          brokers,
         });
       } else {
         await invoke("kafka_helm_reset", {
@@ -303,6 +314,7 @@ export function KafkaManager() {
           release: helmConfig.release,
           chart: helmConfig.chart,
           values: helmConfig.valuesOverrides,
+          brokers,
         });
       }
     } catch (e) {

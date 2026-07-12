@@ -335,7 +335,8 @@ async fn kafka_docker_start(
 }
 
 #[tauri::command]
-async fn kafka_docker_stop(host: String, container_name: String, mode: String) -> Result<(), String> {
+async fn kafka_docker_stop(host: String, container_name: String, mode: String, brokers: String) -> Result<(), String> {
+    KafkaAdmin::invalidate_client(&brokers);
     match mode.as_str() {
         "api" => DockerApi::stop_container(&host, &container_name).await,
         _ => off_main_thread(move || KafkaLifecycle::docker_stop(&host, &container_name)).await,
@@ -350,7 +351,9 @@ async fn kafka_docker_reset(
     port: u16,
     extra_env: Vec<(String, String)>,
     mode: String,
+    brokers: String,
 ) -> Result<(), String> {
+    KafkaAdmin::invalidate_client(&brokers);
     match mode.as_str() {
         "api" => {
             let _ = DockerApi::remove_container(&host, &container_name, true).await;
@@ -376,7 +379,8 @@ async fn kafka_helm_start(
 }
 
 #[tauri::command]
-async fn kafka_helm_stop(context: String, namespace: String, release: String) -> Result<(), String> {
+async fn kafka_helm_stop(context: String, namespace: String, release: String, brokers: String) -> Result<(), String> {
+    KafkaAdmin::invalidate_client(&brokers);
     off_main_thread(move || KafkaLifecycle::helm_stop(&context, &namespace, &release)).await
 }
 
@@ -387,7 +391,9 @@ async fn kafka_helm_reset(
     release: String,
     chart: String,
     values: Vec<(String, String)>,
+    brokers: String,
 ) -> Result<(), String> {
+    KafkaAdmin::invalidate_client(&brokers);
     off_main_thread(move || KafkaLifecycle::helm_reset(&context, &namespace, &release, &chart, &values)).await
 }
 

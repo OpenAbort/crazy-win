@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Trash2 } from "lucide-react";
+import { Search, Trash2 } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { JsonDetailPane, SearchToolbar, useContentSearch } from "@/features/dev-environment/json-detail-pane";
-import type { KafkaTopicSummary } from "@/features/dev-environment/kafka-manager-logic";
+import { JsonDetailPane, useContentSearch } from "@/features/dev-environment/json-detail-pane";
+import { filterMessages, type KafkaMessageRow, type KafkaTopicSummary } from "@/features/dev-environment/kafka-manager-logic";
 
 const ALL_PARTITIONS = "__all__";
 const MAX_MESSAGES = 500;
@@ -16,25 +19,65 @@ const MAX_MESSAGES = 500;
 interface KafkaMessagePayload {
   streamId: number;
   topic: string;
-  message: {
-    partition: number;
-    offset: number;
-    timestamp_ms: number;
-    key: string | null;
-    value: string | null;
-    headers: [string, string][];
-  };
+  message: KafkaMessageRow;
+}
+
+function MessageDetailSheet({ message, onClose }: { message: KafkaMessageRow | null; onClose: () => void }) {
+  const text = useMemo(() => (message ? JSON.stringify(message, null, 2) : ""), [message]);
+  const search = useContentSearch("json", text);
+
+  return (
+    <Sheet open={message !== null} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent className="flex flex-col gap-0 sm:max-w-lg">
+        <SheetHeader>
+          <SheetTitle>
+            {message && `Partition ${message.partition} · Offset ${message.offset}`}
+          </SheetTitle>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 px-4 pb-4">
+          <JsonDetailPane content={text} segments={search.segments} currentMatch={search.currentMatch} />
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function MessageRow({ message, onClick }: { message: KafkaMessageRow; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs hover:bg-muted/50"
+    >
+      <span className="w-20 shrink-0 text-muted-foreground tabular-nums">
+        {new Date(message.timestamp_ms).toLocaleTimeString()}
+      </span>
+      <Badge variant="outline" className="shrink-0">
+        p{message.partition}
+      </Badge>
+      <Badge variant="outline" className="shrink-0 tabular-nums">
+        {message.offset}
+      </Badge>
+      {message.key && <span className="shrink-0 max-w-32 truncate font-mono text-muted-foreground">{message.key}</span>}
+      <span className="min-w-0 flex-1 truncate font-mono">{message.value ?? <span className="text-muted-foreground">{"<null>"}</span>}</span>
+      {message.headers.length > 0 && (
+        <Badge variant="outline" className="shrink-0">
+          {message.headers.length} hdr
+        </Badge>
+      )}
+    </button>
+  );
 }
 
 export function KafkaMessageViewer({ brokers, topic }: { brokers: string; topic: KafkaTopicSummary }) {
   const [partitionFilter, setPartitionFilter] = useState(ALL_PARTITIONS);
   const [live, setLive] = useState(false);
-  const [messages, setMessages] = useState<KafkaMessagePayload["message"][]>([]);
+  const [messages, setMessages] = useState<KafkaMessageRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<KafkaMessageRow | null>(null);
   const streamIdRef = useRef<number | null>(null);
 
-  const messagesText = useMemo(() => JSON.stringify(messages, null, 2), [messages]);
-  const search = useContentSearch("json", messagesText);
+  const filtered = useMemo(() => filterMessages(messages, query), [messages, query]);
 
   useEffect(() => {
     setMessages([]);
@@ -128,20 +171,28 @@ export function KafkaMessageViewer({ brokers, topic }: { brokers: string; topic:
             Clear
           </Button>
         </div>
-        <SearchToolbar
-          query={search.query}
-          onQueryChange={search.setQuery}
-          matchCount={search.matchCount}
-          currentMatch={search.currentMatch}
-          onStep={search.stepMatch}
-        />
+        <div className="relative">
+          <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Filter messages..."
+            className="h-7 w-48 pl-7 text-xs"
+          />
+        </div>
       </div>
-      <JsonDetailPane
-        content={messagesText === "[]" ? "" : messagesText}
-        segments={search.segments}
-        currentMatch={search.currentMatch}
-        emptyLabel="No messages tailed yet. Toggle Live to start."
-      />
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto rounded-lg border p-1.5">
+        {filtered.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
+            {messages.length === 0 ? "No messages tailed yet. Toggle Live to start." : "No messages match your filter."}
+          </div>
+        ) : (
+          filtered.map((message, i) => (
+            <MessageRow key={`${message.partition}-${message.offset}-${i}`} message={message} onClick={() => setSelected(message)} />
+          ))
+        )}
+      </div>
+      <MessageDetailSheet message={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }

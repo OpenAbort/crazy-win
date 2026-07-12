@@ -51,7 +51,7 @@ pub async fn start_stream(
     stream_id: u64,
     streams: &KafkaConsumeStreams,
 ) -> Result<(), String> {
-    let client = Arc::new(KafkaAdmin::client(&brokers).await?);
+    let client = KafkaAdmin::client(&brokers).await?;
 
     let target_partitions = if partitions.is_empty() {
         KafkaAdmin::list_topics(&brokers)
