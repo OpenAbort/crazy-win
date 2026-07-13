@@ -21,12 +21,15 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmDeleteDialog } from "@/features/dev-environment/confirm-delete-dialog";
+import { DockerImagesPanel } from "@/features/dev-environment/docker-images-panel";
 import {
   filterContainers,
   parseContainerList,
   parseInspect,
   type DockerContainerSummary,
 } from "@/features/dev-environment/docker-manager-logic";
+import { DockerNetworksPanel } from "@/features/dev-environment/docker-networks-panel";
+import { DockerVolumesPanel } from "@/features/dev-environment/docker-volumes-panel";
 import {
   getDockerHost,
   getDockerMode,
@@ -37,6 +40,7 @@ import {
 import { JsonDetailPane, SearchToolbar, useContentSearch } from "@/features/dev-environment/json-detail-pane";
 
 export function DockerManager() {
+  const [resourceTab, setResourceTab] = useState("containers");
   const [host, setHost] = useState("");
   const [mode, setMode] = useState<ConnectionMode>("cli");
   const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
@@ -302,7 +306,14 @@ export function DockerManager() {
           </p>
         )}
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
+        <Tabs value={resourceTab} onValueChange={setResourceTab} className="flex min-h-0 flex-1 flex-col gap-4">
+        <TabsList>
+          <TabsTrigger value="containers">Containers</TabsTrigger>
+          <TabsTrigger value="images">Images</TabsTrigger>
+          <TabsTrigger value="volumes">Volumes</TabsTrigger>
+          <TabsTrigger value="networks">Networks</TabsTrigger>
+        </TabsList>
+        <TabsContent value="containers" className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="flex min-h-0 flex-col gap-1.5">
             <div className="relative">
               <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -443,7 +454,17 @@ export function DockerManager() {
               </div>
             )}
           </div>
-        </div>
+        </TabsContent>
+        <TabsContent value="images" className="min-h-0 flex-1">
+          <DockerImagesPanel host={host} mode={mode} />
+        </TabsContent>
+        <TabsContent value="volumes" className="min-h-0 flex-1">
+          <DockerVolumesPanel host={host} mode={mode} />
+        </TabsContent>
+        <TabsContent value="networks" className="min-h-0 flex-1">
+          <DockerNetworksPanel host={host} mode={mode} />
+        </TabsContent>
+        </Tabs>
       </div>
 
       <ConfirmDeleteDialog

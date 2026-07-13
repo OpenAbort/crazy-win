@@ -163,4 +163,73 @@ impl Docker {
         let _ = exec::run("docker", &args);
         Ok(())
     }
+
+    /// Removes a volume, surfacing any error (e.g. "volume is in use") instead
+    /// of swallowing it like `remove_volume` does for the Kafka teardown flow.
+    pub fn remove_volume_checked(host: &str, volume: &str) -> Result<(), String> {
+        let mut args = base_args(host);
+        args.extend(["volume".to_string(), "rm".to_string(), volume.to_string()]);
+        exec::run("docker", &args)?;
+        Ok(())
+    }
+
+    /// Lists all images (including untagged/dangling) as JSON Lines.
+    pub fn list_images(host: &str) -> Result<String, String> {
+        let mut args = base_args(host);
+        args.extend(["images".to_string(), "-a".to_string(), "--format".to_string(), "json".to_string()]);
+        Ok(exec::run("docker", &args)?.stdout)
+    }
+
+    /// Full inspect output (a JSON array with one element) for a single image.
+    pub fn inspect_image(host: &str, id: &str) -> Result<String, String> {
+        let mut args = base_args(host);
+        args.extend(["image".to_string(), "inspect".to_string(), id.to_string()]);
+        Ok(exec::run("docker", &args)?.stdout)
+    }
+
+    pub fn remove_image(host: &str, id: &str, force: bool) -> Result<(), String> {
+        let mut args = base_args(host);
+        args.push("rmi".to_string());
+        if force {
+            args.push("-f".to_string());
+        }
+        args.push(id.to_string());
+        exec::run("docker", &args)?;
+        Ok(())
+    }
+
+    /// Lists all volumes as JSON Lines.
+    pub fn list_volumes(host: &str) -> Result<String, String> {
+        let mut args = base_args(host);
+        args.extend(["volume".to_string(), "ls".to_string(), "--format".to_string(), "json".to_string()]);
+        Ok(exec::run("docker", &args)?.stdout)
+    }
+
+    /// Full inspect output (a JSON array with one element) for a single volume.
+    pub fn inspect_volume(host: &str, name: &str) -> Result<String, String> {
+        let mut args = base_args(host);
+        args.extend(["volume".to_string(), "inspect".to_string(), name.to_string()]);
+        Ok(exec::run("docker", &args)?.stdout)
+    }
+
+    /// Lists all networks as JSON Lines.
+    pub fn list_networks(host: &str) -> Result<String, String> {
+        let mut args = base_args(host);
+        args.extend(["network".to_string(), "ls".to_string(), "--format".to_string(), "json".to_string()]);
+        Ok(exec::run("docker", &args)?.stdout)
+    }
+
+    /// Full inspect output (a JSON array with one element) for a single network.
+    pub fn inspect_network(host: &str, id: &str) -> Result<String, String> {
+        let mut args = base_args(host);
+        args.extend(["network".to_string(), "inspect".to_string(), id.to_string()]);
+        Ok(exec::run("docker", &args)?.stdout)
+    }
+
+    pub fn remove_network(host: &str, id: &str) -> Result<(), String> {
+        let mut args = base_args(host);
+        args.extend(["network".to_string(), "rm".to_string(), id.to_string()]);
+        exec::run("docker", &args)?;
+        Ok(())
+    }
 }

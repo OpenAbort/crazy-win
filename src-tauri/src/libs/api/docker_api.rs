@@ -70,6 +70,33 @@ fn normalize_container(v: &Value) -> Value {
     })
 }
 
+/// Reshapes an `/images/json` entry (one per `RepoTags` entry, matching
+/// `docker images` semantics of one row per tag) into the same field names
+/// `docker images --format json` produces.
+fn normalize_image(v: &Value, id: &str, repo: &str, tag: &str) -> Value {
+    let size = v.get("Size").and_then(|x| x.as_u64()).unwrap_or(0);
+    let created = v.get("Created").and_then(|x| x.as_i64()).unwrap_or(0);
+    serde_json::json!({
+        "ID": id,
+        "Repository": repo,
+        "Tag": tag,
+        "Size": size.to_string(),
+        "CreatedAt": created.to_string(),
+    })
+}
+
+/// Renames the Engine API's `Id` field to `ID`, matching
+/// `docker network ls --format json`'s casing.
+fn normalize_network(v: &Value) -> Value {
+    let mut v = v.clone();
+    if let Some(id) = v.get("Id").cloned() {
+        if let Some(obj) = v.as_object_mut() {
+            obj.insert("ID".to_string(), id);
+        }
+    }
+    v
+}
+
 fn format_port(p: &Value) -> String {
     let private = p.get("PrivatePort").and_then(|x| x.as_u64());
     let public = p.get("PublicPort").and_then(|x| x.as_u64());
@@ -298,6 +325,117 @@ impl DockerApi {
         let base = base_url(host)?;
         let client = reqwest::Client::new();
         let _ = client.delete(format!("{base}/volumes/{volume}")).send().await;
+        Ok(())
+    }
+
+    /// Removes a volume, surfacing any error instead of swallowing it.
+    pub async fn remove_volume_checked(host: &str, volume: &str) -> Result<(), String> {
+        let base = base_url(host)?;
+        let client = reqwest::Client::new();
+        let resp = client
+            .delete(format!("{base}/volumes/{volume}"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        check_status(resp).await?;
+        Ok(())
+    }
+
+    /// Lists images, emitting one JSON-Line row per repo:tag (untagged images
+    /// get a single "<none>:<none>" row), matching `docker images` semantics.
+    pub async fn list_images(host: &str) -> Result<String, String> {
+        let base = base_url(host)?;
+        let resp = reqwest::get(format!("{base}/images/json?all=true"))
+            .await
+            .map_err(|e| e.to_string())?;
+        let resp = check_status(resp).await?;
+        let images: Vec<Value> = resp.json().await.map_err(|e| e.to_string())?;
+        let mut rows = Vec::new();
+        for image in &images {
+            let id = image.get("Id").and_then(|x| x.as_str()).unwrap_or_default();
+            let repo_tags = image
+                .get("RepoTags")
+                .and_then(|x| x.as_array())
+                .filter(|arr| !arr.is_empty())
+                .map(|arr| arr.iter().filter_map(|t| t.as_str()).map(|s| s.to_string()).collect::<Vec<_>>())
+                .unwrap_or_else(|| vec!["<none>:<none>".to_string()]);
+            for tag_entry in repo_tags {
+                let (repo, tag) = tag_entry.rsplit_once(':').unwrap_or((tag_entry.as_str(), "<none>"));
+                rows.push(normalize_image(image, id, repo, tag).to_string());
+            }
+        }
+        Ok(rows.join("\n"))
+    }
+
+    pub async fn inspect_image(host: &str, id: &str) -> Result<String, String> {
+        let base = base_url(host)?;
+        let resp = reqwest::get(format!("{base}/images/{id}/json"))
+            .await
+            .map_err(|e| e.to_string())?;
+        let resp = check_status(resp).await?;
+        let value: Value = resp.json().await.map_err(|e| e.to_string())?;
+        Ok(Value::Array(vec![value]).to_string())
+    }
+
+    pub async fn remove_image(host: &str, id: &str, force: bool) -> Result<(), String> {
+        let base = base_url(host)?;
+        let client = reqwest::Client::new();
+        let resp = client
+            .delete(format!("{base}/images/{id}?force={force}"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        check_status(resp).await?;
+        Ok(())
+    }
+
+    pub async fn list_volumes(host: &str) -> Result<String, String> {
+        let base = base_url(host)?;
+        let resp = reqwest::get(format!("{base}/volumes")).await.map_err(|e| e.to_string())?;
+        let resp = check_status(resp).await?;
+        let body: Value = resp.json().await.map_err(|e| e.to_string())?;
+        let volumes = body.get("Volumes").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        Ok(volumes.iter().map(|v| v.to_string()).collect::<Vec<_>>().join("\n"))
+    }
+
+    pub async fn inspect_volume(host: &str, name: &str) -> Result<String, String> {
+        let base = base_url(host)?;
+        let resp = reqwest::get(format!("{base}/volumes/{name}")).await.map_err(|e| e.to_string())?;
+        let resp = check_status(resp).await?;
+        let value: Value = resp.json().await.map_err(|e| e.to_string())?;
+        Ok(Value::Array(vec![value]).to_string())
+    }
+
+    pub async fn list_networks(host: &str) -> Result<String, String> {
+        let base = base_url(host)?;
+        let resp = reqwest::get(format!("{base}/networks")).await.map_err(|e| e.to_string())?;
+        let resp = check_status(resp).await?;
+        let networks: Vec<Value> = resp.json().await.map_err(|e| e.to_string())?;
+        Ok(networks
+            .iter()
+            .map(normalize_network)
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join("\n"))
+    }
+
+    pub async fn inspect_network(host: &str, id: &str) -> Result<String, String> {
+        let base = base_url(host)?;
+        let resp = reqwest::get(format!("{base}/networks/{id}")).await.map_err(|e| e.to_string())?;
+        let resp = check_status(resp).await?;
+        let value: Value = resp.json().await.map_err(|e| e.to_string())?;
+        Ok(Value::Array(vec![value]).to_string())
+    }
+
+    pub async fn remove_network(host: &str, id: &str) -> Result<(), String> {
+        let base = base_url(host)?;
+        let client = reqwest::Client::new();
+        let resp = client
+            .delete(format!("{base}/networks/{id}"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        check_status(resp).await?;
         Ok(())
     }
 }

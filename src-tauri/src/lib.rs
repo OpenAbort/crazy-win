@@ -198,6 +198,78 @@ async fn docker_info(host: String, mode: String) -> Result<String, String> {
     }
 }
 
+#[tauri::command]
+async fn docker_list_images(host: String, mode: String) -> Result<String, String> {
+    match mode.as_str() {
+        "api" => DockerApi::list_images(&host).await,
+        _ => off_main_thread(move || Docker::list_images(&host)).await,
+    }
+}
+
+#[tauri::command]
+async fn docker_inspect_image(host: String, id: String, mode: String) -> Result<String, String> {
+    match mode.as_str() {
+        "api" => DockerApi::inspect_image(&host, &id).await,
+        _ => off_main_thread(move || Docker::inspect_image(&host, &id)).await,
+    }
+}
+
+#[tauri::command]
+async fn docker_remove_image(host: String, id: String, force: bool, mode: String) -> Result<(), String> {
+    match mode.as_str() {
+        "api" => DockerApi::remove_image(&host, &id, force).await,
+        _ => off_main_thread(move || Docker::remove_image(&host, &id, force)).await,
+    }
+}
+
+#[tauri::command]
+async fn docker_list_volumes(host: String, mode: String) -> Result<String, String> {
+    match mode.as_str() {
+        "api" => DockerApi::list_volumes(&host).await,
+        _ => off_main_thread(move || Docker::list_volumes(&host)).await,
+    }
+}
+
+#[tauri::command]
+async fn docker_inspect_volume(host: String, name: String, mode: String) -> Result<String, String> {
+    match mode.as_str() {
+        "api" => DockerApi::inspect_volume(&host, &name).await,
+        _ => off_main_thread(move || Docker::inspect_volume(&host, &name)).await,
+    }
+}
+
+#[tauri::command]
+async fn docker_remove_volume(host: String, name: String, mode: String) -> Result<(), String> {
+    match mode.as_str() {
+        "api" => DockerApi::remove_volume_checked(&host, &name).await,
+        _ => off_main_thread(move || Docker::remove_volume_checked(&host, &name)).await,
+    }
+}
+
+#[tauri::command]
+async fn docker_list_networks(host: String, mode: String) -> Result<String, String> {
+    match mode.as_str() {
+        "api" => DockerApi::list_networks(&host).await,
+        _ => off_main_thread(move || Docker::list_networks(&host)).await,
+    }
+}
+
+#[tauri::command]
+async fn docker_inspect_network(host: String, id: String, mode: String) -> Result<String, String> {
+    match mode.as_str() {
+        "api" => DockerApi::inspect_network(&host, &id).await,
+        _ => off_main_thread(move || Docker::inspect_network(&host, &id)).await,
+    }
+}
+
+#[tauri::command]
+async fn docker_remove_network(host: String, id: String, mode: String) -> Result<(), String> {
+    match mode.as_str() {
+        "api" => DockerApi::remove_network(&host, &id).await,
+        _ => off_main_thread(move || Docker::remove_network(&host, &id)).await,
+    }
+}
+
 /// Starts a `docker logs -f` tail (CLI mode only — API mode live-tails via
 /// polling from the frontend instead) and streams lines back as
 /// `docker-log-line` events, tagged with the returned stream id.
@@ -542,6 +614,15 @@ pub fn run() {
             docker_info,
             docker_start_log_stream,
             docker_stop_log_stream,
+            docker_list_images,
+            docker_inspect_image,
+            docker_remove_image,
+            docker_list_volumes,
+            docker_inspect_volume,
+            docker_remove_volume,
+            docker_list_networks,
+            docker_inspect_network,
+            docker_remove_network,
             kube_list_contexts,
             kube_current_context,
             kube_list_namespaces,

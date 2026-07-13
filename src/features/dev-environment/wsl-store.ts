@@ -3,6 +3,7 @@ import { getStore } from "@/features/dev-environment/dev-environment-store";
 export interface WslQuickCommand {
   id: string;
   command: string;
+  alias?: string;
   ranAt: number;
 }
 
@@ -23,10 +24,10 @@ export async function getWslQuickCommands(): Promise<WslQuickCommand[]> {
   return (await store.get<WslQuickCommand[]>("wsl-quick-commands")) ?? [];
 }
 
-export async function addWslQuickCommand(command: string): Promise<WslQuickCommand[]> {
+export async function addWslQuickCommand(command: string, alias?: string): Promise<WslQuickCommand[]> {
   const store = await getStore();
   const existing = (await store.get<WslQuickCommand[]>("wsl-quick-commands")) ?? [];
-  const next = [{ id: crypto.randomUUID(), command, ranAt: Date.now() }, ...existing].slice(0, MAX_QUICK_COMMANDS);
+  const next = [{ id: crypto.randomUUID(), command, alias, ranAt: Date.now() }, ...existing].slice(0, MAX_QUICK_COMMANDS);
   await store.set("wsl-quick-commands", next);
   return next;
 }
@@ -35,6 +36,17 @@ export async function removeWslQuickCommand(id: string): Promise<WslQuickCommand
   const store = await getStore();
   const existing = (await store.get<WslQuickCommand[]>("wsl-quick-commands")) ?? [];
   const next = existing.filter((c) => c.id !== id);
+  await store.set("wsl-quick-commands", next);
+  return next;
+}
+
+export async function updateWslQuickCommand(
+  id: string,
+  updates: { command?: string; alias?: string },
+): Promise<WslQuickCommand[]> {
+  const store = await getStore();
+  const existing = (await store.get<WslQuickCommand[]>("wsl-quick-commands")) ?? [];
+  const next = existing.map((c) => (c.id === id ? { ...c, ...updates } : c));
   await store.set("wsl-quick-commands", next);
   return next;
 }
