@@ -139,6 +139,22 @@ impl Docker {
         Ok(())
     }
 
+    /// Starts an already-created, stopped container by name.
+    pub fn start_container(host: &str, name: &str) -> Result<(), String> {
+        let mut args = base_args(host);
+        args.extend(["start".to_string(), name.to_string()]);
+        exec::run("docker", &args)?;
+        Ok(())
+    }
+
+    /// Restarts a container by name, regardless of its current state.
+    pub fn restart_container(host: &str, name: &str) -> Result<(), String> {
+        let mut args = base_args(host);
+        args.extend(["restart".to_string(), name.to_string()]);
+        exec::run("docker", &args)?;
+        Ok(())
+    }
+
     /// Best-effort volume removal; a missing volume is not an error since a
     /// fresh start never created one yet.
     pub fn remove_volume(host: &str, volume: &str) -> Result<(), String> {

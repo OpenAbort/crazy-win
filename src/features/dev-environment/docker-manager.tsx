@@ -5,8 +5,11 @@ import {
   Container,
   LoaderCircle,
   PlugZap,
+  Play,
   RefreshCw,
+  RotateCw,
   Search,
+  Square,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
@@ -204,6 +207,33 @@ export function DockerManager() {
     await refresh();
   }
 
+  async function handleStart(c: DockerContainerSummary) {
+    try {
+      await invoke("docker_start_container", { host, id: c.ID, mode });
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleStop(c: DockerContainerSummary) {
+    try {
+      await invoke("docker_stop_container", { host, id: c.ID, mode });
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleRestart(c: DockerContainerSummary) {
+    try {
+      await invoke("docker_restart_container", { host, id: c.ID, mode });
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   function handleModeChange(next: ConnectionMode) {
     setMode(next);
     void setDockerMode(next);
@@ -304,6 +334,42 @@ export function DockerManager() {
                       <div className="truncate font-mono text-sm">{c.Names}</div>
                       <div className="truncate text-xs text-muted-foreground">{c.Image}</div>
                     </div>
+                    {isRunning(c) ? (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleStop(c);
+                        }}
+                        aria-label="Stop container"
+                      >
+                        <Square />
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleStart(c);
+                        }}
+                        aria-label="Start container"
+                      >
+                        <Play />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleRestart(c);
+                      }}
+                      aria-label="Restart container"
+                    >
+                      <RotateCw />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon-sm"

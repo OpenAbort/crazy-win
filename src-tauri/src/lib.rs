@@ -167,6 +167,30 @@ async fn docker_remove_container(host: String, id: String, force: bool, mode: St
 }
 
 #[tauri::command]
+async fn docker_start_container(host: String, id: String, mode: String) -> Result<(), String> {
+    match mode.as_str() {
+        "api" => DockerApi::start_container(&host, &id).await,
+        _ => off_main_thread(move || Docker::start_container(&host, &id)).await,
+    }
+}
+
+#[tauri::command]
+async fn docker_stop_container(host: String, id: String, mode: String) -> Result<(), String> {
+    match mode.as_str() {
+        "api" => DockerApi::stop_container(&host, &id).await,
+        _ => off_main_thread(move || Docker::stop_container(&host, &id)).await,
+    }
+}
+
+#[tauri::command]
+async fn docker_restart_container(host: String, id: String, mode: String) -> Result<(), String> {
+    match mode.as_str() {
+        "api" => DockerApi::restart_container(&host, &id).await,
+        _ => off_main_thread(move || Docker::restart_container(&host, &id)).await,
+    }
+}
+
+#[tauri::command]
 async fn docker_info(host: String, mode: String) -> Result<String, String> {
     match mode.as_str() {
         "api" => DockerApi::info(&host).await,
@@ -512,6 +536,9 @@ pub fn run() {
             docker_inspect_container,
             docker_container_logs,
             docker_remove_container,
+            docker_start_container,
+            docker_stop_container,
+            docker_restart_container,
             docker_info,
             docker_start_log_stream,
             docker_stop_log_stream,

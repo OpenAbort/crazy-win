@@ -268,6 +268,30 @@ impl DockerApi {
         Ok(())
     }
 
+    pub async fn start_container(host: &str, name: &str) -> Result<(), String> {
+        let base = base_url(host)?;
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("{base}/containers/{name}/start"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        check_status(resp).await?;
+        Ok(())
+    }
+
+    pub async fn restart_container(host: &str, name: &str) -> Result<(), String> {
+        let base = base_url(host)?;
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("{base}/containers/{name}/restart"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        check_status(resp).await?;
+        Ok(())
+    }
+
     /// Best-effort volume removal; a missing volume is not an error since a
     /// fresh start never created one yet.
     pub async fn remove_volume(host: &str, volume: &str) -> Result<(), String> {
