@@ -160,6 +160,7 @@ export function DockerNetworksPanel({ host, mode }: { host: string; mode: Connec
                 content={inspectText}
                 segments={detailSearch.segments}
                 currentMatch={detailSearch.currentMatch}
+                scrollTick={detailSearch.scrollTick}
               />
             </div>
           ) : (

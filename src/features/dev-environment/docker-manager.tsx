@@ -437,6 +437,7 @@ export function DockerManager() {
                     content={inspectText}
                     segments={detailSearch.segments}
                     currentMatch={detailSearch.currentMatch}
+                    scrollTick={detailSearch.scrollTick}
                   />
                 </TabsContent>
                 <TabsContent value="logs" className="min-h-0 flex-1">
@@ -444,6 +445,7 @@ export function DockerManager() {
                     content={logsText}
                     segments={detailSearch.segments}
                     currentMatch={detailSearch.currentMatch}
+                    scrollTick={detailSearch.scrollTick}
                     emptyLabel="No logs"
                   />
                 </TabsContent>

@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use super::kubeconfig::{self, Auth, ResolvedContext};
+use super::kubeconfig::{self, Auth, ManualK8sConnection, ResolvedContext};
 
 fn kind_path(kind: &str) -> Result<&'static str, String> {
     match kind {
@@ -30,11 +30,15 @@ fn build_client(ctx: &ResolvedContext) -> Result<reqwest::Client, String> {
 
 async fn request(
     context: &str,
+    manual: Option<&ManualK8sConnection>,
     method: reqwest::Method,
     path: &str,
     body: Option<Value>,
 ) -> Result<Value, String> {
-    let resolved = kubeconfig::resolve_context(context)?;
+    let resolved = match manual {
+        Some(m) => kubeconfig::resolve_manual(m),
+        None => kubeconfig::resolve_context(context)?,
+    };
     let client = build_client(&resolved)?;
     let url = format!(
         "{}/{}",
@@ -80,45 +84,68 @@ impl K8sApi {
         Ok(kubeconfig::current_context_name()?.unwrap_or_default())
     }
 
-    pub async fn list_namespaces(context: &str) -> Result<String, String> {
-        let value = request(context, reqwest::Method::GET, "api/v1/namespaces", None).await?;
+    pub async fn list_namespaces(context: &str, manual: Option<&ManualK8sConnection>) -> Result<String, String> {
+        let value = request(context, manual, reqwest::Method::GET, "api/v1/namespaces", None).await?;
         Ok(value.to_string())
     }
 
-    pub async fn list_resources(context: &str, namespace: Option<&str>, kind: &str) -> Result<String, String> {
+    pub async fn list_resources(
+        context: &str,
+        namespace: Option<&str>,
+        kind: &str,
+        manual: Option<&ManualK8sConnection>,
+    ) -> Result<String, String> {
         let group_path = kind_path(kind)?;
         let path = match namespace {
             Some(ns) => format!("{group_path}/namespaces/{ns}/{kind}"),
             None => format!("{group_path}/{kind}"),
         };
-        let value = request(context, reqwest::Method::GET, &path, None).await?;
+        let value = request(context, manual, reqwest::Method::GET, &path, None).await?;
         Ok(value.to_string())
     }
 
     /// There's no REST equivalent to `kubectl describe` (it's a client-side kubectl
     /// feature aggregating several calls into a human-readable summary) — this
     /// returns the raw resource JSON instead, with a note explaining the difference.
-    pub async fn describe_resource(context: &str, namespace: &str, kind: &str, name: &str) -> Result<String, String> {
+    pub async fn describe_resource(
+        context: &str,
+        namespace: &str,
+        kind: &str,
+        name: &str,
+        manual: Option<&ManualK8sConnection>,
+    ) -> Result<String, String> {
         let group_path = kind_path(kind)?;
         let path = format!("{group_path}/namespaces/{namespace}/{kind}/{name}");
-        let value = request(context, reqwest::Method::GET, &path, None).await?;
+        let value = request(context, manual, reqwest::Method::GET, &path, None).await?;
         let pretty = serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
         Ok(format!(
             "# Direct API mode shows raw resource JSON here (kubectl describe's summary is a\n# client-side feature with no REST equivalent). Switch to CLI mode for the full\n# `kubectl describe` output.\n\n{pretty}"
         ))
     }
 
-    pub async fn delete_resource(context: &str, namespace: &str, kind: &str, name: &str) -> Result<(), String> {
+    pub async fn delete_resource(
+        context: &str,
+        namespace: &str,
+        kind: &str,
+        name: &str,
+        manual: Option<&ManualK8sConnection>,
+    ) -> Result<(), String> {
         let group_path = kind_path(kind)?;
         let path = format!("{group_path}/namespaces/{namespace}/{kind}/{name}");
-        request(context, reqwest::Method::DELETE, &path, None).await?;
+        request(context, manual, reqwest::Method::DELETE, &path, None).await?;
         Ok(())
     }
 
-    pub async fn scale_deployment(context: &str, namespace: &str, name: &str, replicas: u32) -> Result<(), String> {
+    pub async fn scale_deployment(
+        context: &str,
+        namespace: &str,
+        name: &str,
+        replicas: u32,
+        manual: Option<&ManualK8sConnection>,
+    ) -> Result<(), String> {
         let path = format!("apis/apps/v1/namespaces/{namespace}/deployments/{name}");
         let body = serde_json::json!({ "spec": { "replicas": replicas } });
-        request(context, reqwest::Method::PATCH, &path, Some(body)).await?;
+        request(context, manual, reqwest::Method::PATCH, &path, Some(body)).await?;
         Ok(())
     }
 }

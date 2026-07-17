@@ -76,6 +76,28 @@ pub struct ResolvedContext {
     pub auth: Auth,
 }
 
+/// A connection built directly from user-supplied fields (server URL + optional
+/// bearer token), bypassing `~/.kube/config` entirely — the Direct-API/CLI
+/// equivalent of the Docker tool's manual `host` field.
+#[derive(serde::Deserialize)]
+pub struct ManualK8sConnection {
+    pub server: String,
+    pub token: Option<String>,
+    pub insecure: bool,
+}
+
+pub fn resolve_manual(m: &ManualK8sConnection) -> ResolvedContext {
+    ResolvedContext {
+        server: m.server.clone(),
+        ca_pem: None,
+        insecure_skip_tls_verify: m.insecure,
+        auth: match &m.token {
+            Some(t) if !t.is_empty() => Auth::Bearer(t.clone()),
+            _ => Auth::None,
+        },
+    }
+}
+
 /// Only the first entry of `$KUBECONFIG` is honored; full multi-file merge
 /// (like kubectl does) is out of scope for this best-effort direct-API path.
 fn kubeconfig_path() -> PathBuf {

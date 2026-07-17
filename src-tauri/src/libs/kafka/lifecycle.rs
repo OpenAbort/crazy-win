@@ -48,7 +48,7 @@ impl KafkaLifecycle {
     }
 
     pub fn helm_stop(context: &str, namespace: &str, release: &str) -> Result<(), String> {
-        Helm::uninstall(context, namespace, release)
+        Helm::uninstall(context, namespace, release, None)
     }
 
     /// Uninstalls the release, deletes its PVCs by label (Helm's uninstall
@@ -60,7 +60,7 @@ impl KafkaLifecycle {
         chart: &str,
         values: &[(String, String)],
     ) -> Result<(), String> {
-        let _ = Helm::uninstall(context, namespace, release);
+        let _ = Helm::uninstall(context, namespace, release, None);
         let _ = Kubectl::delete_by_label(
             context,
             namespace,

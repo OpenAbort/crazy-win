@@ -24,9 +24,14 @@ const TOKEN_CLASSES: Record<TokenKind, string> = {
 export function useContentSearch(language: HighlightLanguage, content: string) {
   const [query, setQuery] = useState("");
   const [currentMatch, setCurrentMatch] = useState(0);
+  // Bumped on every intended scroll (query/content reset AND manual step) so the
+  // scroll effect can fire even when the numeric match index doesn't change
+  // (e.g. resetting to match 0 when it was already 0 — see JsonDetailPane).
+  const [scrollTick, setScrollTick] = useState(0);
 
   useEffect(() => {
     setCurrentMatch(0);
+    setScrollTick((t) => t + 1);
   }, [query, content]);
 
   const { segments, matchCount } = useMemo(
@@ -37,9 +42,10 @@ export function useContentSearch(language: HighlightLanguage, content: string) {
   function stepMatch(delta: number) {
     if (matchCount === 0) return;
     setCurrentMatch((prev) => (prev + delta + matchCount) % matchCount);
+    setScrollTick((t) => t + 1);
   }
 
-  return { query, setQuery, currentMatch, stepMatch, segments, matchCount };
+  return { query, setQuery, currentMatch, stepMatch, segments, matchCount, scrollTick };
 }
 
 export function SearchToolbar({
@@ -95,18 +101,20 @@ export function JsonDetailPane({
   content,
   segments,
   currentMatch,
+  scrollTick,
   emptyLabel = "No data",
 }: {
   content: string;
   segments: ReturnType<typeof useContentSearch>["segments"];
   currentMatch: number;
+  scrollTick: number;
   emptyLabel?: string;
 }) {
   const currentMatchRef = useRef<HTMLSpanElement | null>(null);
 
   useEffect(() => {
     currentMatchRef.current?.scrollIntoView({ block: "nearest" });
-  }, [currentMatch]);
+  }, [scrollTick]);
 
   return (
     <div className="h-full min-h-0 flex-1 overflow-auto rounded-lg border border-input bg-transparent px-2.5 py-2 font-mono text-xs whitespace-pre-wrap break-words">

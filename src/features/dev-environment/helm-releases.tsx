@@ -5,22 +5,33 @@ import { Anchor, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmDeleteDialog } from "@/features/dev-environment/confirm-delete-dialog";
 import {
+  getKubeConnectionSource,
   getKubeContext,
+  getKubeManualConnection,
   getKubeNamespace,
+  setKubeConnectionSource,
   setKubeContext,
+  setKubeManualConnection,
   setKubeNamespace,
+  type KubeConnectionSource,
+  type KubeManualConnection,
 } from "@/features/dev-environment/dev-environment-store";
 import { parseReleaseList, type HelmReleaseSummary } from "@/features/dev-environment/helm-releases-logic";
 import { parseContextNames, parseNamespaceList } from "@/features/dev-environment/kubernetes-manager-logic";
 import { JsonDetailPane, SearchToolbar, useContentSearch } from "@/features/dev-environment/json-detail-pane";
 
 const ALL_NAMESPACES = "__all__";
+const DEFAULT_MANUAL_CONNECTION: KubeManualConnection = { server: "", token: "", insecure: false };
 
 export function HelmReleases() {
+  const [connectionSource, setConnectionSource] = useState<KubeConnectionSource>("context");
+  const [manualConnection, setManualConnection] = useState<KubeManualConnection>(DEFAULT_MANUAL_CONNECTION);
   const [contexts, setContexts] = useState<string[]>([]);
   const [context, setContext] = useState("");
   const [namespaces, setNamespaces] = useState<string[]>([]);
@@ -43,10 +54,19 @@ export function HelmReleases() {
   const valuesSearch = useContentSearch("yaml", valuesText);
   const statusSearch = useContentSearch("json", statusText);
 
+  const manualParam = connectionSource === "manual" ? manualConnection : undefined;
+  const ready = connectionSource === "manual" ? !!manualConnection.server.trim() : !!context;
+
   useEffect(() => {
     void (async () => {
       setError(null);
       try {
+        const savedSource = await getKubeConnectionSource();
+        setConnectionSource(savedSource);
+        setManualConnection(await getKubeManualConnection());
+
+        if (savedSource === "manual") return;
+
         const rawContexts = await invoke<string>("kube_list_contexts", { mode: "cli" });
         const names = parseContextNames(rawContexts);
         setContexts(names);
@@ -67,18 +87,18 @@ export function HelmReleases() {
   }, []);
 
   useEffect(() => {
-    if (!context) return;
+    if (!ready) return;
     void loadNamespaces(context);
-  }, [context]);
+  }, [context, connectionSource, manualConnection.server, manualConnection.token, manualConnection.insecure]);
 
   useEffect(() => {
-    if (!context) return;
+    if (!ready) return;
     setSelectedName(null);
     void refresh();
-  }, [context, namespace]);
+  }, [context, namespace, connectionSource, manualConnection.server, manualConnection.token, manualConnection.insecure]);
 
   useEffect(() => {
-    if (!selected || !context) {
+    if (!selected || !ready) {
       setValuesText("");
       setStatusText("");
       return;
@@ -87,9 +107,20 @@ export function HelmReleases() {
     void loadStatus(selected);
   }, [selected?.name]);
 
+  function handleConnectionSourceChange(next: KubeConnectionSource) {
+    setConnectionSource(next);
+    void setKubeConnectionSource(next);
+  }
+
+  function updateManualField<K extends keyof KubeManualConnection>(field: K, value: KubeManualConnection[K]) {
+    const next = { ...manualConnection, [field]: value };
+    setManualConnection(next);
+    void setKubeManualConnection(next);
+  }
+
   async function loadNamespaces(ctx: string) {
     try {
-      const raw = await invoke<string>("kube_list_namespaces", { context: ctx, mode: "cli" });
+      const raw = await invoke<string>("kube_list_namespaces", { context: ctx, mode: "cli", manual: manualParam });
       setNamespaces(parseNamespaceList(raw));
     } catch (e) {
       setError(String(e));
@@ -101,7 +132,7 @@ export function HelmReleases() {
     setError(null);
     try {
       const ns = namespace === ALL_NAMESPACES ? null : namespace;
-      const raw = await invoke<string>("helm_list_releases", { context, namespace: ns });
+      const raw = await invoke<string>("helm_list_releases", { context, namespace: ns, manual: manualParam });
       setReleases(parseReleaseList(raw));
     } catch (e) {
       setError(String(e));
@@ -118,6 +149,7 @@ export function HelmReleases() {
           context,
           namespace: release.namespace,
           release: release.name,
+          manual: manualParam,
         }),
       );
     } catch (e) {
@@ -131,6 +163,7 @@ export function HelmReleases() {
         context,
         namespace: release.namespace,
         release: release.name,
+        manual: manualParam,
       });
       setStatusText(JSON.stringify(JSON.parse(raw), null, 2));
     } catch (e) {
@@ -144,6 +177,7 @@ export function HelmReleases() {
       context,
       namespace: deleteTarget.namespace,
       release: deleteTarget.name,
+      manual: manualParam,
     });
     if (selectedName === deleteTarget.name) setSelectedName(null);
     await refresh();
@@ -181,18 +215,27 @@ export function HelmReleases() {
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <Select value={context} onValueChange={handleContextChange}>
-            <SelectTrigger>
-              <SelectValue placeholder="Context" />
-            </SelectTrigger>
-            <SelectContent>
-              {contexts.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Tabs value={connectionSource} onValueChange={(v) => handleConnectionSourceChange(v as KubeConnectionSource)}>
+            <TabsList>
+              <TabsTrigger value="context">Kubeconfig</TabsTrigger>
+              <TabsTrigger value="manual">Manual</TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {connectionSource === "context" && (
+            <Select value={context} onValueChange={handleContextChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="Context" />
+              </SelectTrigger>
+              <SelectContent>
+                {contexts.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           <Select value={namespace} onValueChange={handleNamespaceChange}>
             <SelectTrigger>
@@ -213,6 +256,31 @@ export function HelmReleases() {
             Refresh
           </Button>
         </div>
+        {connectionSource === "manual" && (
+          <div className="-mt-2 flex flex-wrap items-center gap-2">
+            <Input
+              value={manualConnection.server}
+              onChange={(e) => updateManualField("server", e.target.value)}
+              placeholder="https://api-server:6443"
+              className="w-64"
+            />
+            <Input
+              value={manualConnection.token}
+              onChange={(e) => updateManualField("token", e.target.value)}
+              placeholder="Bearer token (optional)"
+              type="password"
+              className="w-56"
+            />
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              Skip TLS verify
+              <Switch
+                checked={manualConnection.insecure}
+                onCheckedChange={(v) => updateManualField("insecure", v)}
+                size="sm"
+              />
+            </label>
+          </div>
+        )}
 
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
@@ -273,6 +341,7 @@ export function HelmReleases() {
                     content={valuesText}
                     segments={valuesSearch.segments}
                     currentMatch={valuesSearch.currentMatch}
+                    scrollTick={valuesSearch.scrollTick}
                   />
                 </TabsContent>
                 <TabsContent value="status" className="flex min-h-0 flex-1 flex-col gap-1.5">
@@ -287,6 +356,7 @@ export function HelmReleases() {
                     content={statusText}
                     segments={statusSearch.segments}
                     currentMatch={statusSearch.currentMatch}
+                    scrollTick={statusSearch.scrollTick}
                   />
                 </TabsContent>
               </Tabs>

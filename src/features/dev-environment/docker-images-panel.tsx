@@ -157,6 +157,7 @@ export function DockerImagesPanel({ host, mode }: { host: string; mode: Connecti
                 content={inspectText}
                 segments={detailSearch.segments}
                 currentMatch={detailSearch.currentMatch}
+                scrollTick={detailSearch.scrollTick}
               />
             </div>
           ) : (

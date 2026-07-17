@@ -65,3 +65,31 @@ export async function getKubeMode(): Promise<ConnectionMode> {
 export async function setKubeMode(mode: ConnectionMode): Promise<void> {
   await setString("kube-mode", mode);
 }
+
+export type KubeConnectionSource = "context" | "manual";
+
+export interface KubeManualConnection {
+  server: string;
+  token: string;
+  insecure: boolean;
+}
+
+const DEFAULT_MANUAL_CONNECTION: KubeManualConnection = { server: "", token: "", insecure: false };
+
+export async function getKubeConnectionSource(): Promise<KubeConnectionSource> {
+  return ((await getString("kube-connection-source")) as KubeConnectionSource | null) ?? "context";
+}
+
+export async function setKubeConnectionSource(source: KubeConnectionSource): Promise<void> {
+  await setString("kube-connection-source", source);
+}
+
+export async function getKubeManualConnection(): Promise<KubeManualConnection> {
+  const store = await getStore();
+  return (await store.get<KubeManualConnection>("kube-manual-connection")) ?? DEFAULT_MANUAL_CONNECTION;
+}
+
+export async function setKubeManualConnection(conn: KubeManualConnection): Promise<void> {
+  const store = await getStore();
+  await store.set("kube-manual-connection", conn);
+}

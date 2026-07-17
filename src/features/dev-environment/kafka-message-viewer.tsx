@@ -35,7 +35,12 @@ function MessageDetailSheet({ message, onClose }: { message: KafkaMessageRow | n
           </SheetTitle>
         </SheetHeader>
         <div className="min-h-0 flex-1 px-4 pb-4">
-          <JsonDetailPane content={text} segments={search.segments} currentMatch={search.currentMatch} />
+          <JsonDetailPane
+            content={text}
+            segments={search.segments}
+            currentMatch={search.currentMatch}
+            scrollTick={search.scrollTick}
+          />
         </div>
       </SheetContent>
     </Sheet>

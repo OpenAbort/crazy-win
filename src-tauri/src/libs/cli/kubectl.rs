@@ -1,4 +1,5 @@
 use super::exec;
+use crate::libs::api::kubeconfig::ManualK8sConnection;
 
 /// Resource kinds supported by the Kubernetes tool's MVP list/describe/delete views.
 const ALLOWED_KINDS: &[&str] = &["pods", "deployments", "services"];
@@ -27,6 +28,28 @@ fn namespace_args(namespace: Option<&str>) -> Vec<String> {
     }
 }
 
+/// `--context <name>`, or the equivalent ad-hoc `--server`/`--token`/
+/// `--insecure-skip-tls-verify` flags when a manual connection is supplied —
+/// kubectl supports connecting this way without any kubeconfig context.
+fn connection_args(context: &str, manual: Option<&ManualK8sConnection>) -> Vec<String> {
+    match manual {
+        Some(m) => {
+            let mut args = vec!["--server".to_string(), m.server.clone()];
+            if let Some(t) = &m.token {
+                if !t.is_empty() {
+                    args.push("--token".to_string());
+                    args.push(t.clone());
+                }
+            }
+            if m.insecure {
+                args.push("--insecure-skip-tls-verify".to_string());
+            }
+            args
+        }
+        None => vec!["--context".to_string(), context.to_string()],
+    }
+}
+
 pub struct Kubectl;
 
 impl Kubectl {
@@ -40,16 +63,21 @@ impl Kubectl {
         Ok(exec::run("kubectl", &["config".to_string(), "current-context".to_string()])?.stdout)
     }
 
-    pub fn list_namespaces(context: &str) -> Result<String, String> {
-        let mut args = vec!["--context".to_string(), context.to_string()];
+    pub fn list_namespaces(context: &str, manual: Option<&ManualK8sConnection>) -> Result<String, String> {
+        let mut args = connection_args(context, manual);
         args.extend(timeout_args());
         args.extend(["get".to_string(), "namespaces".to_string(), "-o".to_string(), "json".to_string()]);
         Ok(exec::run("kubectl", &args)?.stdout)
     }
 
-    pub fn list_resources(context: &str, namespace: Option<&str>, kind: &str) -> Result<String, String> {
+    pub fn list_resources(
+        context: &str,
+        namespace: Option<&str>,
+        kind: &str,
+        manual: Option<&ManualK8sConnection>,
+    ) -> Result<String, String> {
         validate_kind(kind)?;
-        let mut args = vec!["--context".to_string(), context.to_string()];
+        let mut args = connection_args(context, manual);
         args.extend(namespace_args(namespace));
         args.extend(timeout_args());
         args.extend(["get".to_string(), kind.to_string(), "-o".to_string(), "json".to_string()]);
@@ -57,25 +85,46 @@ impl Kubectl {
     }
 
     /// Plain text output, rendered as-is.
-    pub fn describe_resource(context: &str, namespace: &str, kind: &str, name: &str) -> Result<String, String> {
+    pub fn describe_resource(
+        context: &str,
+        namespace: &str,
+        kind: &str,
+        name: &str,
+        manual: Option<&ManualK8sConnection>,
+    ) -> Result<String, String> {
         validate_kind(kind)?;
-        let mut args = vec!["--context".to_string(), context.to_string(), "-n".to_string(), namespace.to_string()];
+        let mut args = connection_args(context, manual);
+        args.extend(["-n".to_string(), namespace.to_string()]);
         args.extend(timeout_args());
         args.extend(["describe".to_string(), kind.to_string(), name.to_string()]);
         Ok(exec::run("kubectl", &args)?.stdout)
     }
 
-    pub fn delete_resource(context: &str, namespace: &str, kind: &str, name: &str) -> Result<(), String> {
+    pub fn delete_resource(
+        context: &str,
+        namespace: &str,
+        kind: &str,
+        name: &str,
+        manual: Option<&ManualK8sConnection>,
+    ) -> Result<(), String> {
         validate_kind(kind)?;
-        let mut args = vec!["--context".to_string(), context.to_string(), "-n".to_string(), namespace.to_string()];
+        let mut args = connection_args(context, manual);
+        args.extend(["-n".to_string(), namespace.to_string()]);
         args.extend(timeout_args());
         args.extend(["delete".to_string(), kind.to_string(), name.to_string()]);
         exec::run("kubectl", &args)?;
         Ok(())
     }
 
-    pub fn scale_deployment(context: &str, namespace: &str, name: &str, replicas: u32) -> Result<(), String> {
-        let mut args = vec!["--context".to_string(), context.to_string(), "-n".to_string(), namespace.to_string()];
+    pub fn scale_deployment(
+        context: &str,
+        namespace: &str,
+        name: &str,
+        replicas: u32,
+        manual: Option<&ManualK8sConnection>,
+    ) -> Result<(), String> {
+        let mut args = connection_args(context, manual);
+        args.extend(["-n".to_string(), namespace.to_string()]);
         args.extend(timeout_args());
         args.extend(["scale".to_string(), "deployment".to_string(), name.to_string(), format!("--replicas={replicas}")]);
         exec::run("kubectl", &args)?;

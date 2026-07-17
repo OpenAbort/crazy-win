@@ -7,6 +7,7 @@ use std::sync::Mutex;
 
 use libs::api::docker_api::DockerApi;
 use libs::api::k8s_api::K8sApi;
+use libs::api::kubeconfig::ManualK8sConnection;
 use libs::cli::docker::Docker;
 use libs::cli::helm::Helm;
 use libs::cli::kubectl::Kubectl;
@@ -343,65 +344,107 @@ async fn kube_current_context(mode: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn kube_list_namespaces(context: String, mode: String) -> Result<String, String> {
+async fn kube_list_namespaces(context: String, mode: String, manual: Option<ManualK8sConnection>) -> Result<String, String> {
     match mode.as_str() {
-        "api" => K8sApi::list_namespaces(&context).await,
-        _ => off_main_thread(move || Kubectl::list_namespaces(&context)).await,
+        "api" => K8sApi::list_namespaces(&context, manual.as_ref()).await,
+        _ => off_main_thread(move || Kubectl::list_namespaces(&context, manual.as_ref())).await,
     }
 }
 
 #[tauri::command]
-async fn kube_list_resources(context: String, namespace: Option<String>, kind: String, mode: String) -> Result<String, String> {
+async fn kube_list_resources(
+    context: String,
+    namespace: Option<String>,
+    kind: String,
+    mode: String,
+    manual: Option<ManualK8sConnection>,
+) -> Result<String, String> {
     match mode.as_str() {
-        "api" => K8sApi::list_resources(&context, namespace.as_deref(), &kind).await,
-        _ => off_main_thread(move || Kubectl::list_resources(&context, namespace.as_deref(), &kind)).await,
+        "api" => K8sApi::list_resources(&context, namespace.as_deref(), &kind, manual.as_ref()).await,
+        _ => off_main_thread(move || Kubectl::list_resources(&context, namespace.as_deref(), &kind, manual.as_ref())).await,
     }
 }
 
 #[tauri::command]
-async fn kube_describe_resource(context: String, namespace: String, kind: String, name: String, mode: String) -> Result<String, String> {
+async fn kube_describe_resource(
+    context: String,
+    namespace: String,
+    kind: String,
+    name: String,
+    mode: String,
+    manual: Option<ManualK8sConnection>,
+) -> Result<String, String> {
     match mode.as_str() {
-        "api" => K8sApi::describe_resource(&context, &namespace, &kind, &name).await,
-        _ => off_main_thread(move || Kubectl::describe_resource(&context, &namespace, &kind, &name)).await,
+        "api" => K8sApi::describe_resource(&context, &namespace, &kind, &name, manual.as_ref()).await,
+        _ => off_main_thread(move || Kubectl::describe_resource(&context, &namespace, &kind, &name, manual.as_ref())).await,
     }
 }
 
 #[tauri::command]
-async fn kube_delete_resource(context: String, namespace: String, kind: String, name: String, mode: String) -> Result<(), String> {
+async fn kube_delete_resource(
+    context: String,
+    namespace: String,
+    kind: String,
+    name: String,
+    mode: String,
+    manual: Option<ManualK8sConnection>,
+) -> Result<(), String> {
     match mode.as_str() {
-        "api" => K8sApi::delete_resource(&context, &namespace, &kind, &name).await,
-        _ => off_main_thread(move || Kubectl::delete_resource(&context, &namespace, &kind, &name)).await,
+        "api" => K8sApi::delete_resource(&context, &namespace, &kind, &name, manual.as_ref()).await,
+        _ => off_main_thread(move || Kubectl::delete_resource(&context, &namespace, &kind, &name, manual.as_ref())).await,
     }
 }
 
 #[tauri::command]
-async fn kube_scale_deployment(context: String, namespace: String, name: String, replicas: u32, mode: String) -> Result<(), String> {
+async fn kube_scale_deployment(
+    context: String,
+    namespace: String,
+    name: String,
+    replicas: u32,
+    mode: String,
+    manual: Option<ManualK8sConnection>,
+) -> Result<(), String> {
     match mode.as_str() {
-        "api" => K8sApi::scale_deployment(&context, &namespace, &name, replicas).await,
-        _ => off_main_thread(move || Kubectl::scale_deployment(&context, &namespace, &name, replicas)).await,
+        "api" => K8sApi::scale_deployment(&context, &namespace, &name, replicas, manual.as_ref()).await,
+        _ => off_main_thread(move || Kubectl::scale_deployment(&context, &namespace, &name, replicas, manual.as_ref())).await,
     }
 }
 
 // --- Helm ---
 
 #[tauri::command]
-async fn helm_list_releases(context: String, namespace: Option<String>) -> Result<String, String> {
-    off_main_thread(move || Helm::list_releases(&context, namespace.as_deref())).await
+async fn helm_list_releases(context: String, namespace: Option<String>, manual: Option<ManualK8sConnection>) -> Result<String, String> {
+    off_main_thread(move || Helm::list_releases(&context, namespace.as_deref(), manual.as_ref())).await
 }
 
 #[tauri::command]
-async fn helm_get_values(context: String, namespace: String, release: String) -> Result<String, String> {
-    off_main_thread(move || Helm::get_values(&context, &namespace, &release)).await
+async fn helm_get_values(
+    context: String,
+    namespace: String,
+    release: String,
+    manual: Option<ManualK8sConnection>,
+) -> Result<String, String> {
+    off_main_thread(move || Helm::get_values(&context, &namespace, &release, manual.as_ref())).await
 }
 
 #[tauri::command]
-async fn helm_status(context: String, namespace: String, release: String) -> Result<String, String> {
-    off_main_thread(move || Helm::status(&context, &namespace, &release)).await
+async fn helm_status(
+    context: String,
+    namespace: String,
+    release: String,
+    manual: Option<ManualK8sConnection>,
+) -> Result<String, String> {
+    off_main_thread(move || Helm::status(&context, &namespace, &release, manual.as_ref())).await
 }
 
 #[tauri::command]
-async fn helm_uninstall(context: String, namespace: String, release: String) -> Result<(), String> {
-    off_main_thread(move || Helm::uninstall(&context, &namespace, &release)).await
+async fn helm_uninstall(
+    context: String,
+    namespace: String,
+    release: String,
+    manual: Option<ManualK8sConnection>,
+) -> Result<(), String> {
+    off_main_thread(move || Helm::uninstall(&context, &namespace, &release, manual.as_ref())).await
 }
 
 // --- Kafka lifecycle ---

@@ -153,6 +153,7 @@ export function DockerVolumesPanel({ host, mode }: { host: string; mode: Connect
                 content={inspectText}
                 segments={detailSearch.segments}
                 currentMatch={detailSearch.currentMatch}
+                scrollTick={detailSearch.scrollTick}
               />
             </div>
           ) : (

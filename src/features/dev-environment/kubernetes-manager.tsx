@@ -7,16 +7,23 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmDeleteDialog } from "@/features/dev-environment/confirm-delete-dialog";
 import {
+  getKubeConnectionSource,
   getKubeContext,
+  getKubeManualConnection,
   getKubeMode,
   getKubeNamespace,
+  setKubeConnectionSource,
   setKubeContext,
+  setKubeManualConnection,
   setKubeMode,
   setKubeNamespace,
   type ConnectionMode,
+  type KubeConnectionSource,
+  type KubeManualConnection,
 } from "@/features/dev-environment/dev-environment-store";
 import {
   parseContextNames,
@@ -29,8 +36,12 @@ import {
 const ALL_NAMESPACES = "__all__";
 const KINDS: K8sKind[] = ["pods", "deployments", "services"];
 
+const DEFAULT_MANUAL_CONNECTION: KubeManualConnection = { server: "", token: "", insecure: false };
+
 export function KubernetesManager() {
   const [mode, setMode] = useState<ConnectionMode>("cli");
+  const [connectionSource, setConnectionSource] = useState<KubeConnectionSource>("context");
+  const [manualConnection, setManualConnection] = useState<KubeManualConnection>(DEFAULT_MANUAL_CONNECTION);
   const [contexts, setContexts] = useState<string[]>([]);
   const [context, setContext] = useState<string>("");
   const [namespaces, setNamespaces] = useState<string[]>([]);
@@ -51,12 +62,21 @@ export function KubernetesManager() {
     [resources, selectedName],
   );
 
+  const manualParam = connectionSource === "manual" ? manualConnection : undefined;
+  const ready = connectionSource === "manual" ? !!manualConnection.server.trim() : !!context;
+
   useEffect(() => {
     void (async () => {
       setError(null);
       try {
         const savedMode = await getKubeMode();
         setMode(savedMode);
+
+        const savedSource = await getKubeConnectionSource();
+        setConnectionSource(savedSource);
+        setManualConnection(await getKubeManualConnection());
+
+        if (savedSource === "manual") return;
 
         const rawContexts = await invoke<string>("kube_list_contexts", { mode: savedMode });
         const names = parseContextNames(rawContexts);
@@ -78,18 +98,18 @@ export function KubernetesManager() {
   }, []);
 
   useEffect(() => {
-    if (!context) return;
+    if (!ready) return;
     void loadNamespaces(context);
-  }, [context, mode]);
+  }, [context, mode, connectionSource, manualConnection.server, manualConnection.token, manualConnection.insecure]);
 
   useEffect(() => {
-    if (!context) return;
+    if (!ready) return;
     setSelectedName(null);
     void refresh();
-  }, [context, namespace, kind, mode]);
+  }, [context, namespace, kind, mode, connectionSource, manualConnection.server, manualConnection.token, manualConnection.insecure]);
 
   useEffect(() => {
-    if (!selected || !context) {
+    if (!selected || !ready) {
       setDescribeText("");
       return;
     }
@@ -97,9 +117,19 @@ export function KubernetesManager() {
     void loadDescribe(selected);
   }, [selected?.name]);
 
+  function handleConnectionSourceChange(next: KubeConnectionSource) {
+    setConnectionSource(next);
+    void setKubeConnectionSource(next);
+  }
+
+  function handleManualConnectionChange(next: KubeManualConnection) {
+    setManualConnection(next);
+    void setKubeManualConnection(next);
+  }
+
   async function loadNamespaces(ctx: string) {
     try {
-      const raw = await invoke<string>("kube_list_namespaces", { context: ctx, mode });
+      const raw = await invoke<string>("kube_list_namespaces", { context: ctx, mode, manual: manualParam });
       setNamespaces(parseNamespaceList(raw));
     } catch (e) {
       setError(String(e));
@@ -111,7 +141,7 @@ export function KubernetesManager() {
     setError(null);
     try {
       const ns = namespace === ALL_NAMESPACES ? null : namespace;
-      const raw = await invoke<string>("kube_list_resources", { context, namespace: ns, kind, mode });
+      const raw = await invoke<string>("kube_list_resources", { context, namespace: ns, kind, mode, manual: manualParam });
       setResources(parseResourceList(raw, kind));
     } catch (e) {
       setError(String(e));
@@ -129,6 +159,7 @@ export function KubernetesManager() {
         kind,
         name: resource.name,
         mode,
+        manual: manualParam,
       });
       setDescribeText(text);
     } catch (e) {
@@ -144,6 +175,7 @@ export function KubernetesManager() {
       kind,
       name: deleteTarget.name,
       mode,
+      manual: manualParam,
     });
     if (selectedName === deleteTarget.name) setSelectedName(null);
     await refresh();
@@ -161,6 +193,7 @@ export function KubernetesManager() {
         name: selected.name,
         replicas,
         mode,
+        manual: manualParam,
       });
       await refresh();
     } catch (e) {
@@ -184,6 +217,10 @@ export function KubernetesManager() {
     void setKubeMode(next);
   }
 
+  function updateManualField<K extends keyof KubeManualConnection>(field: K, value: KubeManualConnection[K]) {
+    handleManualConnectionChange({ ...manualConnection, [field]: value });
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b bg-background px-6 py-4">
@@ -205,18 +242,27 @@ export function KubernetesManager() {
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <Select value={context} onValueChange={handleContextChange}>
-            <SelectTrigger>
-              <SelectValue placeholder="Context" />
-            </SelectTrigger>
-            <SelectContent>
-              {contexts.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Tabs value={connectionSource} onValueChange={(v) => handleConnectionSourceChange(v as KubeConnectionSource)}>
+            <TabsList>
+              <TabsTrigger value="context">Kubeconfig</TabsTrigger>
+              <TabsTrigger value="manual">Manual</TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {connectionSource === "context" && (
+            <Select value={context} onValueChange={handleContextChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="Context" />
+              </SelectTrigger>
+              <SelectContent>
+                {contexts.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           <Select value={namespace} onValueChange={handleNamespaceChange}>
             <SelectTrigger>
@@ -254,6 +300,31 @@ export function KubernetesManager() {
             Refresh
           </Button>
         </div>
+        {connectionSource === "manual" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              value={manualConnection.server}
+              onChange={(e) => updateManualField("server", e.target.value)}
+              placeholder="https://api-server:6443"
+              className="w-64"
+            />
+            <Input
+              value={manualConnection.token}
+              onChange={(e) => updateManualField("token", e.target.value)}
+              placeholder="Bearer token (optional)"
+              type="password"
+              className="w-56"
+            />
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              Skip TLS verify
+              <Switch
+                checked={manualConnection.insecure}
+                onCheckedChange={(v) => updateManualField("insecure", v)}
+                size="sm"
+              />
+            </label>
+          </div>
+        )}
         {mode === "api" && (
           <p className="-mt-2 text-xs text-muted-foreground">
             Direct API mode needs no <code>kubectl</code>, but only supports plain client-cert/bearer-token
