@@ -1,41 +1,48 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { Check, Pencil, Plus, Redo2, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDeleteDialog } from "@/features/dev-environment/confirm-delete-dialog";
 import {
-  addWslQuickCommand,
-  getWslQuickCommands,
-  removeWslQuickCommand,
-  updateWslQuickCommand,
-  type WslQuickCommand,
-} from "@/features/dev-environment/wsl-store";
+  addQuickCommand,
+  getQuickCommands,
+  removeQuickCommand,
+  updateQuickCommand,
+  type QuickCommand,
+} from "@/features/dev-environment/quick-commands-store";
 
-export function WslQuickCommands({ activeSessionId }: { activeSessionId: number | null }) {
-  const [commands, setCommands] = useState<WslQuickCommand[]>([]);
+export function QuickCommandsPanel({
+  namespace,
+  activeSessionId,
+  onSend,
+}: {
+  namespace: string;
+  activeSessionId: number | null;
+  onSend: (command: string) => void;
+}) {
+  const [commands, setCommands] = useState<QuickCommand[]>([]);
   const [draft, setDraft] = useState("");
   const [draftAlias, setDraftAlias] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editCommand, setEditCommand] = useState("");
   const [editAlias, setEditAlias] = useState("");
-  const [deleteTarget, setDeleteTarget] = useState<WslQuickCommand | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<QuickCommand | null>(null);
 
   useEffect(() => {
-    void getWslQuickCommands().then(setCommands);
-  }, []);
+    void getQuickCommands(namespace).then(setCommands);
+  }, [namespace]);
 
   async function handleAdd() {
     const command = draft.trim();
     if (!command) return;
-    setCommands(await addWslQuickCommand(command, draftAlias.trim() || undefined));
+    setCommands(await addQuickCommand(namespace, command, draftAlias.trim() || undefined));
     setDraft("");
     setDraftAlias("");
   }
 
   async function handleRemove(id: string) {
-    setCommands(await removeWslQuickCommand(id));
+    setCommands(await removeQuickCommand(namespace, id));
   }
 
   function handleReuse(command: string) {
@@ -44,10 +51,10 @@ export function WslQuickCommands({ activeSessionId }: { activeSessionId: number 
 
   function handleSendAgain(command: string) {
     if (activeSessionId === null) return;
-    void invoke("wsl_write", { sessionId: activeSessionId, data: `${command}\n` });
+    onSend(command);
   }
 
-  function startEdit(c: WslQuickCommand) {
+  function startEdit(c: QuickCommand) {
     setEditingId(c.id);
     setEditCommand(c.command);
     setEditAlias(c.alias ?? "");
@@ -60,7 +67,7 @@ export function WslQuickCommands({ activeSessionId }: { activeSessionId: number 
   async function saveEdit(id: string) {
     const command = editCommand.trim();
     if (!command) return;
-    setCommands(await updateWslQuickCommand(id, { command, alias: editAlias.trim() || undefined }));
+    setCommands(await updateQuickCommand(namespace, id, { command, alias: editAlias.trim() || undefined }));
     setEditingId(null);
   }
 

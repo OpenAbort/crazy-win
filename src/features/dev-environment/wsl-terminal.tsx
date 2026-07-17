@@ -6,9 +6,9 @@ import { FolderOpen, Plus, SquareTerminal, TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { QuickCommandsPanel } from "@/features/dev-environment/quick-commands-panel";
 import { ensureWslOutputRouter } from "@/features/dev-environment/wsl-terminal-logic";
 import { getLastWslDistro, getWslLastCwd, setLastWslDistro, setWslLastCwd } from "@/features/dev-environment/wsl-store";
-import { WslQuickCommands } from "@/features/dev-environment/wsl-quick-commands";
 import { WslTerminalPane } from "@/features/dev-environment/wsl-terminal-pane";
 import { WslTerminalTabs, type WslTab } from "@/features/dev-environment/wsl-terminal-tabs";
 
@@ -157,7 +157,14 @@ export function WslTerminal() {
                 )}
               </div>
               <div className="lg:w-72 lg:shrink-0">
-                <WslQuickCommands activeSessionId={activeTabId} />
+                <QuickCommandsPanel
+                  namespace="wsl"
+                  activeSessionId={activeTabId}
+                  onSend={(command) => {
+                    if (activeTabId === null) return;
+                    void invoke("wsl_write", { sessionId: activeTabId, data: `${command}\n` });
+                  }}
+                />
               </div>
             </div>
           </div>

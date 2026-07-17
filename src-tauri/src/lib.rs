@@ -18,6 +18,7 @@ use libs::kafka::consumer::{self, KafkaConsumeStreams};
 use libs::kafka::lifecycle::KafkaLifecycle;
 use libs::kafka::produce::KafkaProducer;
 use libs::kafka::types::brokers_to_summaries;
+use libs::terminal::TerminalSessions;
 use libs::wsl::WslSessions;
 use tauri::Emitter;
 
@@ -632,6 +633,32 @@ fn wsl_close_session(session_id: u64, sessions: tauri::State<'_, WslSessions>) -
     sessions.close(session_id)
 }
 
+// --- Terminal (native shell) ---
+
+#[tauri::command]
+fn terminal_start_session(
+    cwd: Option<String>,
+    app: tauri::AppHandle,
+    sessions: tauri::State<'_, TerminalSessions>,
+) -> Result<u64, String> {
+    sessions.start(cwd, app)
+}
+
+#[tauri::command]
+fn terminal_write(session_id: u64, data: String, sessions: tauri::State<'_, TerminalSessions>) -> Result<(), String> {
+    sessions.write(session_id, &data)
+}
+
+#[tauri::command]
+fn terminal_resize(session_id: u64, cols: u16, rows: u16, sessions: tauri::State<'_, TerminalSessions>) -> Result<(), String> {
+    sessions.resize(session_id, cols, rows)
+}
+
+#[tauri::command]
+fn terminal_close_session(session_id: u64, sessions: tauri::State<'_, TerminalSessions>) -> Result<(), String> {
+    sessions.close(session_id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -641,6 +668,7 @@ pub fn run() {
         .manage(LogStreams::default())
         .manage(KafkaConsumeStreams::default())
         .manage(WslSessions::default())
+        .manage(TerminalSessions::default())
         .invoke_handler(tauri::generate_handler![
             read_hosts,
             write_hosts,
@@ -696,7 +724,11 @@ pub fn run() {
             wsl_start_session,
             wsl_write,
             wsl_resize,
-            wsl_close_session
+            wsl_close_session,
+            terminal_start_session,
+            terminal_write,
+            terminal_resize,
+            terminal_close_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,13 +1,15 @@
 import { getStore } from "@/features/dev-environment/dev-environment-store";
+import {
+  addQuickCommand,
+  getQuickCommands,
+  removeQuickCommand,
+  updateQuickCommand,
+  type QuickCommand,
+} from "@/features/dev-environment/quick-commands-store";
 
-export interface WslQuickCommand {
-  id: string;
-  command: string;
-  alias?: string;
-  ranAt: number;
-}
+export type WslQuickCommand = QuickCommand;
 
-const MAX_QUICK_COMMANDS = 50;
+const NAMESPACE = "wsl";
 
 export async function getLastWslDistro(): Promise<string | null> {
   const store = await getStore();
@@ -20,35 +22,22 @@ export async function setLastWslDistro(distro: string): Promise<void> {
 }
 
 export async function getWslQuickCommands(): Promise<WslQuickCommand[]> {
-  const store = await getStore();
-  return (await store.get<WslQuickCommand[]>("wsl-quick-commands")) ?? [];
+  return getQuickCommands(NAMESPACE);
 }
 
 export async function addWslQuickCommand(command: string, alias?: string): Promise<WslQuickCommand[]> {
-  const store = await getStore();
-  const existing = (await store.get<WslQuickCommand[]>("wsl-quick-commands")) ?? [];
-  const next = [{ id: crypto.randomUUID(), command, alias, ranAt: Date.now() }, ...existing].slice(0, MAX_QUICK_COMMANDS);
-  await store.set("wsl-quick-commands", next);
-  return next;
+  return addQuickCommand(NAMESPACE, command, alias);
 }
 
 export async function removeWslQuickCommand(id: string): Promise<WslQuickCommand[]> {
-  const store = await getStore();
-  const existing = (await store.get<WslQuickCommand[]>("wsl-quick-commands")) ?? [];
-  const next = existing.filter((c) => c.id !== id);
-  await store.set("wsl-quick-commands", next);
-  return next;
+  return removeQuickCommand(NAMESPACE, id);
 }
 
 export async function updateWslQuickCommand(
   id: string,
   updates: { command?: string; alias?: string },
 ): Promise<WslQuickCommand[]> {
-  const store = await getStore();
-  const existing = (await store.get<WslQuickCommand[]>("wsl-quick-commands")) ?? [];
-  const next = existing.map((c) => (c.id === id ? { ...c, ...updates } : c));
-  await store.set("wsl-quick-commands", next);
-  return next;
+  return updateQuickCommand(NAMESPACE, id, updates);
 }
 
 export async function getWslLastCwd(distro: string): Promise<string | null> {

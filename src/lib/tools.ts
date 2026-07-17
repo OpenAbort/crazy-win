@@ -12,6 +12,7 @@ import {
   Settings2,
   Ship,
   SquareTerminal,
+  TerminalSquare,
   Waypoints,
   Wrench,
   type LucideIcon,
@@ -52,6 +53,9 @@ const KafkaManager = lazy(() =>
 const WslTerminal = lazy(() =>
   import("@/features/dev-environment/wsl-terminal").then((m) => ({ default: m.WslTerminal })),
 );
+const Terminal = lazy(() =>
+  import("@/features/dev-environment/terminal").then((m) => ({ default: m.Terminal })),
+);
 
 export type SectionId = "window-manager" | "dev-tools" | "dev-environment";
 
@@ -66,7 +70,8 @@ export type ToolId =
   | "kubernetes-manager"
   | "helm-releases"
   | "kafka-manager"
-  | "wsl-terminal";
+  | "wsl-terminal"
+  | "terminal";
 
 export interface SectionDef {
   id: SectionId;
@@ -177,6 +182,14 @@ export const tools: ToolDef[] = [
     icon: SquareTerminal,
     section: "dev-environment",
     Component: WslTerminal,
+  },
+  {
+    id: "terminal",
+    label: "Terminal",
+    description: "Native PowerShell terminal with tabs and split panes",
+    icon: TerminalSquare,
+    section: "dev-environment",
+    Component: Terminal,
   },
 ];
 
