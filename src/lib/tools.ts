@@ -2,6 +2,7 @@ import { lazy, type ComponentType } from "react";
 import {
   Anchor,
   AppWindow,
+  Binary,
   Boxes,
   Braces,
   Container,
@@ -36,6 +37,9 @@ const MarkdownViewer = lazy(() =>
 const HelmFormatter = lazy(() =>
   import("@/features/dev-tools/helm-formatter").then((m) => ({ default: m.HelmFormatter })),
 );
+const Base64Encoder = lazy(() =>
+  import("@/features/dev-tools/base64-encoder").then((m) => ({ default: m.Base64Encoder })),
+);
 const DockerManager = lazy(() =>
   import("@/features/dev-environment/docker-manager").then((m) => ({ default: m.DockerManager })),
 );
@@ -66,6 +70,7 @@ export type ToolId =
   | "text-comparer"
   | "markdown-viewer"
   | "helm-formatter"
+  | "base64-encoder"
   | "docker-manager"
   | "kubernetes-manager"
   | "helm-releases"
@@ -146,6 +151,14 @@ export const tools: ToolDef[] = [
     icon: Ship,
     section: "dev-tools",
     Component: HelmFormatter,
+  },
+  {
+    id: "base64-encoder",
+    label: "Base64 Encoder",
+    description: "Encode and decode Base64 text",
+    icon: Binary,
+    section: "dev-tools",
+    Component: Base64Encoder,
   },
   {
     id: "docker-manager",
