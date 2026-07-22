@@ -11,6 +11,7 @@ use libs::api::kubeconfig::ManualK8sConnection;
 use libs::cli::docker::Docker;
 use libs::cli::helm::Helm;
 use libs::cli::kubectl::Kubectl;
+#[cfg(windows)]
 use libs::io::env_vars::EnvVars;
 use libs::io::hosts_file::HostsFile;
 use libs::kafka::admin::KafkaAdmin;
@@ -19,6 +20,7 @@ use libs::kafka::lifecycle::KafkaLifecycle;
 use libs::kafka::produce::KafkaProducer;
 use libs::kafka::types::brokers_to_summaries;
 use libs::terminal::TerminalSessions;
+#[cfg(windows)]
 use libs::wsl::WslSessions;
 use tauri::Emitter;
 
@@ -61,8 +63,16 @@ fn export_text_backup(path: String, content: String) -> Result<(), String> {
     std::fs::write(path, content).map_err(|e| e.to_string())
 }
 
+/// Reports the host OS ("windows" | "linux" | "macos"), so the frontend can
+/// hide tools with no Linux/macOS equivalent (e.g. WSL Terminal, Env Editor).
+#[tauri::command]
+fn app_platform() -> &'static str {
+    std::env::consts::OS
+}
+
 /// Read all env vars for `scope` ("user" | "system"), serialized as sorted
 /// `NAME=VALUE` lines for stable diffing/rendering.
+#[cfg(windows)]
 #[tauri::command]
 fn read_env_vars(scope: String) -> Result<String, String> {
     let vars = EnvVars::read(&scope)?;
@@ -74,6 +84,7 @@ fn read_env_vars(scope: String) -> Result<String, String> {
 }
 
 /// Parse `content` (NAME=VALUE lines) and write the diff to the registry for `scope`.
+#[cfg(windows)]
 #[tauri::command]
 fn write_env_vars(scope: String, content: String) -> Result<(), String> {
     let desired: Vec<(String, String)> = content
@@ -98,6 +109,7 @@ fn write_env_vars(scope: String, content: String) -> Result<(), String> {
 
 /// Notify other processes that the environment changed, so newly-launched
 /// processes (not already-running ones) pick up the new values without a logoff.
+#[cfg(windows)]
 fn broadcast_env_change() {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
@@ -598,16 +610,19 @@ async fn kafka_produce(
     KafkaProducer::produce(&brokers, &topic, partition, key, value, headers).await
 }
 
+#[cfg(windows)]
 #[tauri::command]
 async fn wsl_list_distros() -> Result<Vec<String>, String> {
     off_main_thread(libs::wsl::list_distros).await
 }
 
+#[cfg(windows)]
 #[tauri::command]
 async fn wsl_windows_path_to_wsl(path: String) -> Result<String, String> {
     off_main_thread(move || libs::wsl::windows_path_to_wsl(&path)).await
 }
 
+#[cfg(windows)]
 #[tauri::command]
 fn wsl_start_session(
     distro: Option<String>,
@@ -618,16 +633,19 @@ fn wsl_start_session(
     sessions.start(distro, cwd, app)
 }
 
+#[cfg(windows)]
 #[tauri::command]
 fn wsl_write(session_id: u64, data: String, sessions: tauri::State<'_, WslSessions>) -> Result<(), String> {
     sessions.write(session_id, &data)
 }
 
+#[cfg(windows)]
 #[tauri::command]
 fn wsl_resize(session_id: u64, cols: u16, rows: u16, sessions: tauri::State<'_, WslSessions>) -> Result<(), String> {
     sessions.resize(session_id, cols, rows)
 }
 
+#[cfg(windows)]
 #[tauri::command]
 fn wsl_close_session(session_id: u64, sessions: tauri::State<'_, WslSessions>) -> Result<(), String> {
     sessions.close(session_id)
@@ -661,19 +679,25 @@ fn terminal_close_session(session_id: u64, sessions: tauri::State<'_, TerminalSe
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(LogStreams::default())
         .manage(KafkaConsumeStreams::default())
-        .manage(WslSessions::default())
-        .manage(TerminalSessions::default())
+        .manage(TerminalSessions::default());
+    #[cfg(windows)]
+    let builder = builder.manage(WslSessions::default());
+
+    builder
         .invoke_handler(tauri::generate_handler![
             read_hosts,
             write_hosts,
             export_text_backup,
+            app_platform,
+            #[cfg(windows)]
             read_env_vars,
+            #[cfg(windows)]
             write_env_vars,
             docker_list_containers,
             docker_inspect_container,
@@ -719,11 +743,17 @@ pub fn run() {
             kafka_start_consume_stream,
             kafka_stop_consume_stream,
             kafka_produce,
+            #[cfg(windows)]
             wsl_list_distros,
+            #[cfg(windows)]
             wsl_windows_path_to_wsl,
+            #[cfg(windows)]
             wsl_start_session,
+            #[cfg(windows)]
             wsl_write,
+            #[cfg(windows)]
             wsl_resize,
+            #[cfg(windows)]
             wsl_close_session,
             terminal_start_session,
             terminal_write,

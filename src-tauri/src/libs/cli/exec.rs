@@ -1,9 +1,17 @@
 use std::io;
-use std::os::windows::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 
-/// Prevents a console window from flashing on screen when we shell out from a GUI app.
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// Prevents a console window from flashing on screen when we shell out from a
+/// GUI app. Windows-only concern — a no-op on Linux/macOS, where GUI-launched
+/// processes never pop a console in the first place.
+#[cfg(windows)]
+fn suppress_console_window(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+#[cfg(not(windows))]
+fn suppress_console_window(_cmd: &mut Command) {}
 
 pub struct ExecOutput {
     pub stdout: String,
@@ -13,11 +21,10 @@ pub struct ExecOutput {
 /// Runs `program` with `args`, decoding output lossily (CLI output isn't guaranteed UTF-8).
 /// Errors are mapped to messages safe to show directly in the UI.
 pub fn run(program: &str, args: &[String]) -> Result<ExecOutput, String> {
-    let output = Command::new(program)
-        .args(args)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| map_spawn_err(program, e))?;
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    suppress_console_window(&mut cmd);
+    let output = cmd.output().map_err(|e| map_spawn_err(program, e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -41,10 +48,10 @@ pub fn run(program: &str, args: &[String]) -> Result<ExecOutput, String> {
 /// Spawns `program` with piped stdout/stderr instead of waiting for completion,
 /// so a caller can stream output line-by-line (e.g. `docker logs -f`).
 pub fn spawn_piped(program: &str, args: &[String]) -> Result<Child, String> {
-    Command::new(program)
-        .args(args)
-        .creation_flags(CREATE_NO_WINDOW)
-        .stdout(Stdio::piped())
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    suppress_console_window(&mut cmd);
+    cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| map_spawn_err(program, e))

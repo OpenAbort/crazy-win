@@ -22,9 +22,10 @@ import {Separator} from "@/components/ui/separator";
 type AppSidebarProps = {
   activeId: ToolId;
   onSelect: (id: ToolId) => void;
+  platform: string | null;
 };
 
-export function AppSidebar({activeId, onSelect}: AppSidebarProps) {
+export function AppSidebar({activeId, onSelect, platform}: AppSidebarProps) {
   const {state} = useSidebar();
   const [version, setVersion] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(
@@ -82,7 +83,7 @@ export function AppSidebar({activeId, onSelect}: AppSidebarProps) {
                 <CollapsibleContent>
                   <SidebarGroupContent>
                     <SidebarMenu>
-                      {toolsBySection(section.id).map((tool) => (
+                      {toolsBySection(section.id, platform).map((tool) => (
                         <SidebarMenuItem key={tool.id}>
                           <SidebarMenuButton
                             isActive={tool.id === activeId}

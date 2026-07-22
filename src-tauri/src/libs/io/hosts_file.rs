@@ -2,8 +2,11 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Standard Windows hosts file location.
+/// Standard hosts file location for the current OS.
+#[cfg(windows)]
 const DEFAULT_HOSTS_PATH: &str = r"C:\Windows\System32\drivers\etc\hosts";
+#[cfg(not(windows))]
+const DEFAULT_HOSTS_PATH: &str = "/etc/hosts";
 
 /// Reads and writes the system hosts file.
 pub struct HostsFile {
@@ -11,7 +14,7 @@ pub struct HostsFile {
 }
 
 impl HostsFile {
-    /// Point at the standard Windows hosts file.
+    /// Point at the standard hosts file for this OS.
     pub fn new() -> Self {
         HostsFile {
             path: PathBuf::from(DEFAULT_HOSTS_PATH),

@@ -86,6 +86,9 @@ export interface ToolDef {
   icon: LucideIcon;
   section: SectionId;
   Component: ComponentType;
+  /// Tools with no Linux/macOS equivalent (WSL, the Windows registry). Hidden
+  /// from the sidebar once the platform is known and isn't "windows".
+  windowsOnly?: boolean;
 }
 
 export const sections: SectionDef[] = [
@@ -110,6 +113,7 @@ export const tools: ToolDef[] = [
     icon: Settings2,
     section: "window-manager",
     Component: EnvEditor,
+    windowsOnly: true,
   },
   {
     id: "formatter",
@@ -182,19 +186,22 @@ export const tools: ToolDef[] = [
     icon: SquareTerminal,
     section: "dev-environment",
     Component: WslTerminal,
+    windowsOnly: true,
   },
   {
     id: "terminal",
     label: "Terminal",
-    description: "Native PowerShell terminal with tabs and split panes",
+    description: "Native terminal (PowerShell or your default shell) with tabs and split panes",
     icon: TerminalSquare,
     section: "dev-environment",
     Component: Terminal,
   },
 ];
 
-export function toolsBySection(sectionId: SectionId): ToolDef[] {
-  return tools.filter((tool) => tool.section === sectionId);
+export function toolsBySection(sectionId: SectionId, platform: string | null): ToolDef[] {
+  return tools.filter(
+    (tool) => tool.section === sectionId && (!tool.windowsOnly || platform === null || platform === "windows"),
+  );
 }
 
 export function getTool(id: ToolId): ToolDef {

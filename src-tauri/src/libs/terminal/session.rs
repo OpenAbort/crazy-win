@@ -33,6 +33,29 @@ fn build_command(shell: &str, cwd: &Option<String>) -> CommandBuilder {
     cmd
 }
 
+/// Shells to try, in order, for the current OS. `start()` tries each in turn
+/// and only fails if every candidate fails to spawn.
+#[cfg(windows)]
+fn shell_candidates() -> Vec<String> {
+    // Prefer PowerShell 7 (`pwsh.exe`) if installed; fall back to the
+    // always-present Windows PowerShell (`powershell.exe`) otherwise.
+    vec!["pwsh.exe".to_string(), "powershell.exe".to_string()]
+}
+#[cfg(not(windows))]
+fn shell_candidates() -> Vec<String> {
+    // Prefer the user's configured shell ($SHELL), falling back to bash/sh,
+    // which are present on essentially every Linux distro.
+    let mut candidates = Vec::new();
+    if let Ok(shell) = std::env::var("SHELL") {
+        if !shell.is_empty() {
+            candidates.push(shell);
+        }
+    }
+    candidates.push("bash".to_string());
+    candidates.push("sh".to_string());
+    candidates
+}
+
 /// Tracks live native-shell PTY sessions, keyed by an id handed back to the
 /// frontend. Structurally identical to `WslSessions` (same PTY plumbing,
 /// read/write/resize/close semantics) — the only difference is which
@@ -56,15 +79,21 @@ impl TerminalSessions {
             })
             .map_err(|e| e.to_string())?;
 
-        // Prefer PowerShell 7 (`pwsh.exe`) if installed; fall back to the
-        // always-present Windows PowerShell (`powershell.exe`) otherwise.
-        let mut child = match pair.slave.spawn_command(build_command("pwsh.exe", &cwd)) {
-            Ok(child) => child,
-            Err(_) => pair
-                .slave
-                .spawn_command(build_command("powershell.exe", &cwd))
-                .map_err(|e| e.to_string())?,
-        };
+        let candidates = shell_candidates();
+        let mut last_err: Option<String> = None;
+        let mut child = None;
+        for shell in &candidates {
+            match pair.slave.spawn_command(build_command(shell, &cwd)) {
+                Ok(c) => {
+                    child = Some(c);
+                    break;
+                }
+                Err(e) => last_err = Some(e.to_string()),
+            }
+        }
+        let mut child = child.ok_or_else(|| {
+            last_err.unwrap_or_else(|| "No shell available to start a session with.".to_string())
+        })?;
         drop(pair.slave);
 
         let writer = pair.master.take_writer().map_err(|e| e.to_string())?;

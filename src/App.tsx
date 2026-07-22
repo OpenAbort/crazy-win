@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { getPlatform } from "@/lib/platform";
 import { getTool, tools, type ToolId } from "@/lib/tools";
 import "./App.css";
 
@@ -35,9 +36,14 @@ function App() {
     if (isTerminal) setTerminalVisited(true);
   }, [isTerminal]);
 
+  const [platform, setPlatform] = useState<string | null>(null);
+  useEffect(() => {
+    void getPlatform().then(setPlatform);
+  }, []);
+
   return (
     <SidebarProvider className="h-svh overflow-hidden">
-      <AppSidebar activeId={activeId} onSelect={setActiveId} />
+      <AppSidebar activeId={activeId} onSelect={setActiveId} platform={platform} />
       <SidebarInset className="min-h-0">
         <AppHeader activeTool={activeTool} />
         <main className="flex min-h-0 flex-1 flex-col overflow-auto">
