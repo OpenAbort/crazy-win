@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use libs::api::docker_api::DockerApi;
+use libs::api::http_client::{HttpClient, HttpResponseData};
 use libs::api::k8s_api::K8sApi;
 use libs::api::kubeconfig::ManualK8sConnection;
 use libs::cli::docker::Docker;
@@ -423,6 +424,37 @@ async fn kube_scale_deployment(
     }
 }
 
+#[tauri::command]
+async fn kube_apply_manifest(
+    context: String,
+    namespace: String,
+    kind: String,
+    name: String,
+    mode: String,
+    manual: Option<ManualK8sConnection>,
+    content: String,
+) -> Result<(), String> {
+    match mode.as_str() {
+        "api" => K8sApi::apply_manifest(&context, &namespace, &kind, &name, manual.as_ref(), &content).await,
+        _ => off_main_thread(move || Kubectl::apply_manifest(&context, &namespace, manual.as_ref(), &content)).await,
+    }
+}
+
+#[tauri::command]
+fn kube_exec_start(
+    context: String,
+    namespace: String,
+    pod: String,
+    container: Option<String>,
+    shell: String,
+    manual: Option<ManualK8sConnection>,
+    app: tauri::AppHandle,
+    sessions: tauri::State<'_, TerminalSessions>,
+) -> Result<u64, String> {
+    let args = Kubectl::exec_args(&context, &namespace, &pod, container.as_deref(), &shell, manual.as_ref());
+    sessions.start_with_command("kubectl", &args, app)
+}
+
 // --- Helm ---
 
 #[tauri::command]
@@ -458,6 +490,19 @@ async fn helm_uninstall(
     manual: Option<ManualK8sConnection>,
 ) -> Result<(), String> {
     off_main_thread(move || Helm::uninstall(&context, &namespace, &release, manual.as_ref())).await
+}
+
+// --- HTTP client ---
+
+#[tauri::command]
+async fn http_send_request(
+    method: String,
+    url: String,
+    headers: Vec<(String, String)>,
+    body: Option<String>,
+    insecure: bool,
+) -> Result<HttpResponseData, String> {
+    HttpClient::send(&method, &url, &headers, body.as_deref(), insecure).await
 }
 
 // --- Kafka lifecycle ---
@@ -725,10 +770,13 @@ pub fn run() {
             kube_describe_resource,
             kube_delete_resource,
             kube_scale_deployment,
+            kube_apply_manifest,
+            kube_exec_start,
             helm_list_releases,
             helm_get_values,
             helm_status,
             helm_uninstall,
+            http_send_request,
             kafka_docker_start,
             kafka_docker_stop,
             kafka_docker_reset,

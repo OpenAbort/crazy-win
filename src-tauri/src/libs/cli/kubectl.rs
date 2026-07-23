@@ -148,4 +148,51 @@ impl Kubectl {
         exec::run("kubectl", &args)?;
         Ok(())
     }
+
+    /// Applies an edited manifest (piped via stdin) — `kubectl apply -f -`
+    /// reads `kind`/`metadata.name` from `content` itself, so neither is
+    /// needed as a separate parameter here (unlike the Direct API path).
+    pub fn apply_manifest(
+        context: &str,
+        namespace: &str,
+        manual: Option<&ManualK8sConnection>,
+        content: &str,
+    ) -> Result<(), String> {
+        let mut args = connection_args(context, manual);
+        args.extend(["-n".to_string(), namespace.to_string()]);
+        args.extend(timeout_args());
+        args.extend(["apply".to_string(), "-f".to_string(), "-".to_string()]);
+        exec::run_with_stdin("kubectl", &args, content)?;
+        Ok(())
+    }
+
+    /// Builds the argument list for an interactive `kubectl exec` session —
+    /// used to spawn `kubectl` itself as the child process behind a local
+    /// PTY (see `TerminalSessions::start_with_command`), rather than being
+    /// run through `exec::run`. `-it` requests kubectl's own TTY allocation
+    /// from the API server, which our local PTY then displays.
+    pub fn exec_args(
+        context: &str,
+        namespace: &str,
+        pod: &str,
+        container: Option<&str>,
+        shell: &str,
+        manual: Option<&ManualK8sConnection>,
+    ) -> Vec<String> {
+        let mut args = vec![
+            "exec".to_string(),
+            "-it".to_string(),
+            pod.to_string(),
+            "-n".to_string(),
+            namespace.to_string(),
+        ];
+        args.extend(connection_args(context, manual));
+        if let Some(c) = container {
+            args.push("-c".to_string());
+            args.push(c.to_string());
+        }
+        args.push("--".to_string());
+        args.push(shell.to_string());
+        args
+    }
 }

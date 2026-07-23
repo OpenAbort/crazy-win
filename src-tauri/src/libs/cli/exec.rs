@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, Write};
 use std::process::{Child, Command, Stdio};
 
 /// Prevents a console window from flashing on screen when we shell out from a
@@ -25,7 +25,25 @@ pub fn run(program: &str, args: &[String]) -> Result<ExecOutput, String> {
     cmd.args(args);
     suppress_console_window(&mut cmd);
     let output = cmd.output().map_err(|e| map_spawn_err(program, e))?;
+    finish_output(program, output)
+}
 
+/// Like `run`, but pipes `stdin_data` to the child's stdin before waiting —
+/// needed for commands that read their input from stdin (e.g. `kubectl apply -f -`).
+pub fn run_with_stdin(program: &str, args: &[String], stdin_data: &str) -> Result<ExecOutput, String> {
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    suppress_console_window(&mut cmd);
+    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| map_spawn_err(program, e))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(stdin_data.as_bytes()).map_err(|e| e.to_string())?;
+    } // dropping `stdin` here closes the pipe, signaling EOF so the child doesn't hang waiting for more input
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    finish_output(program, output)
+}
+
+fn finish_output(program: &str, output: std::process::Output) -> Result<ExecOutput, String> {
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
 

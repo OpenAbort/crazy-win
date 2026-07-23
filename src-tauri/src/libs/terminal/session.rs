@@ -91,22 +91,48 @@ impl TerminalSessions {
                 Err(e) => last_err = Some(e.to_string()),
             }
         }
-        let mut child = child.ok_or_else(|| {
+        let child = child.ok_or_else(|| {
             last_err.unwrap_or_else(|| "No shell available to start a session with.".to_string())
         })?;
         drop(pair.slave);
 
-        let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
-        let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+        self.finish_start(pair.master, child, app)
+    }
+
+    /// Spawns an arbitrary `program`/`args` behind a local PTY instead of one
+    /// of the built-in shells — used for `kubectl exec` sessions (see
+    /// `Kubectl::exec_args`), which are otherwise tracked/read/written/closed
+    /// through the exact same machinery as a regular shell session.
+    pub fn start_with_command(&self, program: &str, args: &[String], app: tauri::AppHandle) -> Result<u64, String> {
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| e.to_string())?;
+
+        let mut cmd = CommandBuilder::new(program);
+        cmd.args(args);
+        let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+        drop(pair.slave);
+
+        self.finish_start(pair.master, child, app)
+    }
+
+    fn finish_start(
+        &self,
+        master: Box<dyn MasterPty + Send>,
+        mut child: Box<dyn portable_pty::Child + Send + Sync>,
+        app: tauri::AppHandle,
+    ) -> Result<u64, String> {
+        let writer = master.take_writer().map_err(|e| e.to_string())?;
+        let reader = master.try_clone_reader().map_err(|e| e.to_string())?;
 
         let session_id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        self.sessions.lock().unwrap().insert(
-            session_id,
-            TerminalSessionHandle {
-                writer,
-                master: pair.master,
-            },
-        );
+        self.sessions.lock().unwrap().insert(session_id, TerminalSessionHandle { writer, master });
 
         let output_app = app.clone();
         std::thread::spawn(move || {

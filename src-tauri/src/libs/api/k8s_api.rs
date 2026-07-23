@@ -34,6 +34,7 @@ async fn request(
     method: reqwest::Method,
     path: &str,
     body: Option<Value>,
+    content_type: &str,
 ) -> Result<Value, String> {
     let resolved = match manual {
         Some(m) => kubeconfig::resolve_manual(m),
@@ -51,7 +52,7 @@ async fn request(
         req = req.header("Authorization", format!("Bearer {token}"));
     }
     if let Some(b) = &body {
-        req = req.header("Content-Type", "application/merge-patch+json").json(b);
+        req = req.header("Content-Type", content_type).json(b);
     }
 
     let resp = req.send().await.map_err(|e| e.to_string())?;
@@ -85,7 +86,7 @@ impl K8sApi {
     }
 
     pub async fn list_namespaces(context: &str, manual: Option<&ManualK8sConnection>) -> Result<String, String> {
-        let value = request(context, manual, reqwest::Method::GET, "api/v1/namespaces", None).await?;
+        let value = request(context, manual, reqwest::Method::GET, "api/v1/namespaces", None, "application/json").await?;
         Ok(value.to_string())
     }
 
@@ -100,7 +101,7 @@ impl K8sApi {
             Some(ns) => format!("{group_path}/namespaces/{ns}/{kind}"),
             None => format!("{group_path}/{kind}"),
         };
-        let value = request(context, manual, reqwest::Method::GET, &path, None).await?;
+        let value = request(context, manual, reqwest::Method::GET, &path, None, "application/json").await?;
         Ok(value.to_string())
     }
 
@@ -116,7 +117,7 @@ impl K8sApi {
     ) -> Result<String, String> {
         let group_path = kind_path(kind)?;
         let path = format!("{group_path}/namespaces/{namespace}/{kind}/{name}");
-        let value = request(context, manual, reqwest::Method::GET, &path, None).await?;
+        let value = request(context, manual, reqwest::Method::GET, &path, None, "application/json").await?;
         let pretty = serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
         Ok(format!(
             "# Direct API mode shows raw resource JSON here (kubectl describe's summary is a\n# client-side feature with no REST equivalent). Switch to CLI mode for the full\n# `kubectl describe` output.\n\n{pretty}"
@@ -132,7 +133,7 @@ impl K8sApi {
     ) -> Result<(), String> {
         let group_path = kind_path(kind)?;
         let path = format!("{group_path}/namespaces/{namespace}/{kind}/{name}");
-        request(context, manual, reqwest::Method::DELETE, &path, None).await?;
+        request(context, manual, reqwest::Method::DELETE, &path, None, "application/json").await?;
         Ok(())
     }
 
@@ -145,7 +146,26 @@ impl K8sApi {
     ) -> Result<(), String> {
         let path = format!("apis/apps/v1/namespaces/{namespace}/deployments/{name}");
         let body = serde_json::json!({ "spec": { "replicas": replicas } });
-        request(context, manual, reqwest::Method::PATCH, &path, Some(body)).await?;
+        request(context, manual, reqwest::Method::PATCH, &path, Some(body), "application/merge-patch+json").await?;
+        Ok(())
+    }
+
+    /// Full-replace PUT of an edited manifest — unlike `scale_deployment`'s
+    /// merge-patch, this sends the whole object back (matching what
+    /// `kubectl apply`/`kubectl edit` do), so the content type is plain
+    /// `application/json`, not `application/merge-patch+json`.
+    pub async fn apply_manifest(
+        context: &str,
+        namespace: &str,
+        kind: &str,
+        name: &str,
+        manual: Option<&ManualK8sConnection>,
+        content: &str,
+    ) -> Result<(), String> {
+        let group_path = kind_path(kind)?;
+        let path = format!("{group_path}/namespaces/{namespace}/{kind}/{name}");
+        let body: Value = serde_json::from_str(content).map_err(|e| format!("Invalid JSON: {e}"))?;
+        request(context, manual, reqwest::Method::PUT, &path, Some(body), "application/json").await?;
         Ok(())
     }
 }

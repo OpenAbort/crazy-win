@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Boxes, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
+import { Boxes, RefreshCw, SquareTerminal, Trash2, TriangleAlert } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDeleteDialog } from "@/features/dev-environment/confirm-delete-dialog";
 import {
   getKubeConnectionSource,
@@ -32,6 +34,8 @@ import {
   type K8sKind,
   type K8sResourceSummary,
 } from "@/features/dev-environment/kubernetes-manager-logic";
+import { ensureTerminalOutputRouter } from "@/features/dev-environment/terminal-logic";
+import { TerminalPane } from "@/features/dev-environment/terminal-pane";
 
 const ALL_NAMESPACES = "__all__";
 const KINDS: K8sKind[] = ["pods", "deployments", "services"];
@@ -54,8 +58,16 @@ export function KubernetesManager() {
 
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [describeText, setDescribeText] = useState("");
+  const [editText, setEditText] = useState("");
+  const [detailTab, setDetailTab] = useState("describe");
   const [scaleValue, setScaleValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<K8sResourceSummary | null>(null);
+
+  const [execTarget, setExecTarget] = useState<K8sResourceSummary | null>(null);
+  const [execContainer, setExecContainer] = useState("");
+  const [execShell, setExecShell] = useState("/bin/sh");
+  const [execSessionId, setExecSessionId] = useState<number | null>(null);
+  const [execError, setExecError] = useState<string | null>(null);
 
   const selected = useMemo(
     () => resources.find((r) => r.name === selectedName) ?? null,
@@ -64,6 +76,24 @@ export function KubernetesManager() {
 
   const manualParam = connectionSource === "manual" ? manualConnection : undefined;
   const ready = connectionSource === "manual" ? !!manualConnection.server.trim() : !!context;
+
+  useEffect(() => {
+    // Attach the shared PTY output router so pod-exec sessions work even if
+    // the user never visits the Terminal tool (idempotent — safe to call
+    // from multiple places).
+    ensureTerminalOutputRouter();
+  }, []);
+
+  // Closing the exec sheet (its own button) already tells the backend to
+  // close the session; this covers the other path — the whole tool
+  // unmounting because the user switched to a different DevBox tool, which
+  // would otherwise leak the `kubectl exec` child process, since (unlike the
+  // Terminal tool) this tool isn't in App.tsx's keep-alive list.
+  useEffect(() => {
+    return () => {
+      if (execSessionId !== null) void invoke("terminal_close_session", { sessionId: execSessionId });
+    };
+  }, [execSessionId]);
 
   useEffect(() => {
     void (async () => {
@@ -111,9 +141,11 @@ export function KubernetesManager() {
   useEffect(() => {
     if (!selected || !ready) {
       setDescribeText("");
+      setEditText("");
       return;
     }
     setScaleValue("");
+    setEditText(JSON.stringify(selected.raw, null, 2));
     void loadDescribe(selected);
   }, [selected?.name]);
 
@@ -199,6 +231,58 @@ export function KubernetesManager() {
     } catch (e) {
       setError(String(e));
     }
+  }
+
+  async function handleSaveManifest() {
+    if (!selected) return;
+    setError(null);
+    try {
+      await invoke("kube_apply_manifest", {
+        context,
+        namespace: selected.namespace,
+        kind,
+        name: selected.name,
+        mode,
+        manual: manualParam,
+        content: editText,
+      });
+      await refresh();
+      await loadDescribe(selected);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  function openExec(resource: K8sResourceSummary) {
+    setExecTarget(resource);
+    setExecContainer("");
+    setExecShell("/bin/sh");
+    setExecSessionId(null);
+    setExecError(null);
+  }
+
+  async function handleStartExec() {
+    if (!execTarget) return;
+    setExecError(null);
+    try {
+      const sessionId = await invoke<number>("kube_exec_start", {
+        context,
+        namespace: execTarget.namespace,
+        pod: execTarget.name,
+        container: execContainer.trim() || undefined,
+        shell: execShell.trim() || "/bin/sh",
+        manual: manualParam,
+      });
+      setExecSessionId(sessionId);
+    } catch (e) {
+      setExecError(String(e));
+    }
+  }
+
+  function closeExec() {
+    if (execSessionId !== null) void invoke("terminal_close_session", { sessionId: execSessionId });
+    setExecTarget(null);
+    setExecSessionId(null);
   }
 
   function handleContextChange(next: string) {
@@ -357,6 +441,19 @@ export function KubernetesManager() {
                       <div className="truncate text-xs text-muted-foreground">{r.namespace}</div>
                     )}
                   </div>
+                  {kind === "pods" && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openExec(r);
+                      }}
+                      aria-label="Exec into pod"
+                    >
+                      <SquareTerminal />
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon-sm"
@@ -390,9 +487,33 @@ export function KubernetesManager() {
                     </Button>
                   </div>
                 )}
-                <pre className="h-full min-h-0 flex-1 overflow-auto rounded-lg border bg-transparent px-2.5 py-2 font-mono text-xs whitespace-pre-wrap break-words">
-                  {describeText || "Loading..."}
-                </pre>
+                <Tabs value={detailTab} onValueChange={setDetailTab} className="flex min-h-0 flex-1 flex-col gap-1.5">
+                  <TabsList>
+                    <TabsTrigger value="describe">Describe</TabsTrigger>
+                    <TabsTrigger value="edit">Edit</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="describe" className="min-h-0 flex-1">
+                    <pre className="h-full min-h-0 flex-1 overflow-auto rounded-lg border bg-transparent px-2.5 py-2 font-mono text-xs whitespace-pre-wrap break-words">
+                      {describeText || "Loading..."}
+                    </pre>
+                  </TabsContent>
+                  <TabsContent value="edit" className="flex min-h-0 flex-1 flex-col gap-1.5">
+                    <p className="text-xs text-muted-foreground">
+                      Saves via a full replace, same as <code>kubectl apply</code>/<code>kubectl edit</code>.
+                      Fields the API server treats as immutable (most of a running Pod's <code>spec</code>,
+                      for instance) will be rejected with an error rather than silently ignored.
+                    </p>
+                    <Textarea
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      spellCheck={false}
+                      className="h-full min-h-0 flex-1 resize-none font-mono text-xs"
+                    />
+                    <Button variant="outline" onClick={() => void handleSaveManifest()} className="w-fit">
+                      Save
+                    </Button>
+                  </TabsContent>
+                </Tabs>
               </>
             ) : (
               <div className="flex h-full items-center justify-center rounded-lg border text-center text-sm text-muted-foreground">
@@ -409,6 +530,54 @@ export function KubernetesManager() {
         resourceLabel={deleteTarget?.name ?? ""}
         onConfirm={handleDelete}
       />
+
+      <Sheet open={execTarget !== null} onOpenChange={(open) => !open && closeExec()}>
+        <SheetContent className="flex w-full flex-col gap-0 sm:max-w-2xl">
+          <SheetHeader>
+            <SheetTitle>{execTarget && `Exec into ${execTarget.name}`}</SheetTitle>
+          </SheetHeader>
+          <div className="flex min-h-0 flex-1 flex-col gap-2 px-4 pb-4">
+            {execError && (
+              <Alert variant="destructive">
+                <TriangleAlert />
+                <AlertTitle>Couldn't start exec session</AlertTitle>
+                <AlertDescription>{execError}</AlertDescription>
+              </Alert>
+            )}
+            {mode !== "cli" ? (
+              <Alert>
+                <TriangleAlert />
+                <AlertTitle>Exec requires CLI mode</AlertTitle>
+                <AlertDescription>
+                  Direct API mode has no equivalent to kubectl's exec protocol. Switch to CLI mode to exec
+                  into a pod.
+                </AlertDescription>
+              </Alert>
+            ) : execSessionId === null ? (
+              <div className="flex flex-col gap-2">
+                <Input
+                  value={execContainer}
+                  onChange={(e) => setExecContainer(e.target.value)}
+                  placeholder="Container (optional, defaults to the pod's first container)"
+                />
+                <Input
+                  value={execShell}
+                  onChange={(e) => setExecShell(e.target.value)}
+                  placeholder="Shell"
+                  className="font-mono"
+                />
+                <Button onClick={() => void handleStartExec()} className="w-fit">
+                  Start
+                </Button>
+              </div>
+            ) : (
+              <div className="min-h-0 flex-1 overflow-hidden rounded-lg border">
+                <TerminalPane sessionId={execSessionId} active />
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
