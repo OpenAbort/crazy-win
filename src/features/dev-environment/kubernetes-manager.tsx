@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Boxes, RefreshCw, SquareTerminal, Trash2, TriangleAlert } from "lucide-react";
+import { Boxes, RefreshCw, Search, SquareTerminal, Trash2, TriangleAlert } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -28,19 +29,32 @@ import {
   type KubeManualConnection,
 } from "@/features/dev-environment/dev-environment-store";
 import {
+  filterResources,
   parseContextNames,
   parseNamespaceList,
   parseResourceList,
+  statusColorClass,
   type K8sKind,
   type K8sResourceSummary,
 } from "@/features/dev-environment/kubernetes-manager-logic";
+import { TOKEN_CLASSES } from "@/features/dev-environment/json-detail-pane";
 import { ensureTerminalOutputRouter } from "@/features/dev-environment/terminal-logic";
 import { TerminalPane } from "@/features/dev-environment/terminal-pane";
+import { applySearch, tokenize } from "@/features/dev-tools/formatter-highlight";
 
 const ALL_NAMESPACES = "__all__";
 const KINDS: K8sKind[] = ["pods", "deployments", "services"];
 
 const DEFAULT_MANUAL_CONNECTION: KubeManualConnection = { server: "", token: "", insecure: false };
+
+const SECTION_ACCENT: Record<string, string> = {
+  metadata: "border-l-blue-500",
+  spec: "border-l-violet-500",
+  status: "border-l-emerald-500",
+};
+function sectionAccent(key: string): string {
+  return SECTION_ACCENT[key] ?? "border-l-slate-400";
+}
 
 export function KubernetesManager() {
   const [mode, setMode] = useState<ConnectionMode>("cli");
@@ -53,12 +67,14 @@ export function KubernetesManager() {
   const [kind, setKind] = useState<K8sKind>("pods");
 
   const [resources, setResources] = useState<K8sResourceSummary[]>([]);
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [describeText, setDescribeText] = useState("");
   const [editText, setEditText] = useState("");
+  const [manifestQuery, setManifestQuery] = useState("");
   const [detailTab, setDetailTab] = useState("describe");
   const [scaleValue, setScaleValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<K8sResourceSummary | null>(null);
@@ -74,8 +90,36 @@ export function KubernetesManager() {
     [resources, selectedName],
   );
 
+  const filtered = useMemo(() => filterResources(resources, query), [resources, query]);
+
+  // One top-level key per section (metadata/spec/status/etc.), each pre-tokenized
+  // and searched — computed as a single hook call over the whole list rather than
+  // one useContentSearch() per section, since the section count varies by
+  // resource/kind and hooks can't be called a variable number of times.
+  const sections = useMemo(() => {
+    if (!selected) return [];
+    const raw = selected.raw as Record<string, unknown>;
+    return Object.entries(raw).map(([key, value]) => ({ key, text: JSON.stringify(value, null, 2) }));
+  }, [selected?.name]);
+
+  const sectionResults = useMemo(
+    () =>
+      sections.map((s) => ({
+        key: s.key,
+        ...applySearch(tokenize("json", s.text), manifestQuery),
+      })),
+    [sections, manifestQuery],
+  );
+
   const manualParam = connectionSource === "manual" ? manualConnection : undefined;
   const ready = connectionSource === "manual" ? !!manualConnection.server.trim() : !!context;
+
+  useEffect(() => {
+    if (ready) return;
+    setResources([]);
+    setNamespaces([]);
+    setSelectedName(null);
+  }, [ready]);
 
   useEffect(() => {
     // Attach the shared PTY output router so pod-exec sessions work even if
@@ -142,10 +186,12 @@ export function KubernetesManager() {
     if (!selected || !ready) {
       setDescribeText("");
       setEditText("");
+      setManifestQuery("");
       return;
     }
     setScaleValue("");
     setEditText(JSON.stringify(selected.raw, null, 2));
+    setManifestQuery("");
     void loadDescribe(selected);
   }, [selected?.name]);
 
@@ -418,55 +464,77 @@ export function KubernetesManager() {
         )}
 
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
-            <div className="divide-y">
-              {resources.length === 0 && (
-                <div className="flex h-full flex-col items-center justify-center gap-2 py-16 text-center text-sm text-muted-foreground">
-                  <Boxes className="size-6" />
-                  No {kind} found.
-                </div>
-              )}
-              {resources.map((r) => (
-                <button
-                  key={`${r.namespace}/${r.name}`}
-                  onClick={() => setSelectedName(r.name)}
-                  className={`flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-muted/50 ${
-                    selectedName === r.name ? "bg-muted" : ""
-                  }`}
-                >
-                  <Badge variant="outline">{r.status}</Badge>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-mono text-sm">{r.name}</div>
-                    {namespace === ALL_NAMESPACES && (
-                      <div className="truncate text-xs text-muted-foreground">{r.namespace}</div>
-                    )}
+          <div className="flex min-h-0 flex-col gap-1.5">
+            <div className="relative">
+              <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Filter by name or namespace..."
+                className="pl-8"
+              />
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
+              <div className="divide-y">
+                {!ready ? (
+                  <div className="flex h-full flex-col items-center justify-center gap-2 py-16 text-center text-sm text-muted-foreground">
+                    <Boxes className="size-6" />
+                    {connectionSource === "manual"
+                      ? "Enter a server URL above to connect."
+                      : "Select a context above to browse resources."}
                   </div>
-                  {kind === "pods" && (
+                ) : (
+                  filtered.length === 0 && (
+                    <div className="flex h-full flex-col items-center justify-center gap-2 py-16 text-center text-sm text-muted-foreground">
+                      <Boxes className="size-6" />
+                      No {kind} found.
+                    </div>
+                  )
+                )}
+                {filtered.map((r) => (
+                  <button
+                    key={`${r.namespace}/${r.name}`}
+                    onClick={() => setSelectedName(r.name)}
+                    className={`flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-muted/50 ${
+                      selectedName === r.name ? "bg-muted" : ""
+                    }`}
+                  >
+                    <Badge variant="outline" className={statusColorClass(kind, r.status)}>
+                      {r.status}
+                    </Badge>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-mono text-sm">{r.name}</div>
+                      {namespace === ALL_NAMESPACES && (
+                        <div className="truncate text-xs text-muted-foreground">{r.namespace}</div>
+                      )}
+                    </div>
+                    {kind === "pods" && (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openExec(r);
+                        }}
+                        aria-label="Exec into pod"
+                      >
+                        <SquareTerminal />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon-sm"
                       onClick={(e) => {
                         e.stopPropagation();
-                        openExec(r);
+                        setDeleteTarget(r);
                       }}
-                      aria-label="Exec into pod"
+                      aria-label="Delete resource"
                     >
-                      <SquareTerminal />
+                      <Trash2 />
                     </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteTarget(r);
-                    }}
-                    aria-label="Delete resource"
-                  >
-                    <Trash2 />
-                  </Button>
-                </button>
-              ))}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -503,6 +571,48 @@ export function KubernetesManager() {
                       Fields the API server treats as immutable (most of a running Pod's <code>spec</code>,
                       for instance) will be rejected with an error rather than silently ignored.
                     </p>
+                    <div className="relative shrink-0">
+                      <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={manifestQuery}
+                        onChange={(e) => setManifestQuery(e.target.value)}
+                        placeholder="Search manifest..."
+                        className="h-8 pl-8 text-xs"
+                      />
+                    </div>
+                    <div className="flex max-h-[45%] shrink-0 flex-col gap-1.5 overflow-y-auto">
+                      {sectionResults.map((s) => (
+                        <Collapsible
+                          key={s.key}
+                          defaultOpen
+                          className={`overflow-hidden rounded-lg border border-l-4 ${sectionAccent(s.key)} ${
+                            manifestQuery && s.matchCount === 0 ? "opacity-50" : ""
+                          }`}
+                        >
+                          <CollapsibleTrigger className="flex w-full items-center justify-between px-2.5 py-1.5 text-xs font-semibold uppercase hover:bg-muted/50">
+                            <span>{s.key}</span>
+                            {manifestQuery && (
+                              <span className="text-xs font-normal text-muted-foreground normal-case">
+                                {s.matchCount} match{s.matchCount === 1 ? "" : "es"}
+                              </span>
+                            )}
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="max-h-48 overflow-auto border-t px-2.5 py-2 font-mono text-xs whitespace-pre-wrap break-words">
+                            {s.segments.map((segment, i) => (
+                              <span
+                                key={i}
+                                className={
+                                  (TOKEN_CLASSES[segment.kind] || "") +
+                                  (segment.isMatch ? " rounded-sm bg-yellow-300/60 dark:bg-yellow-500/40" : "")
+                                }
+                              >
+                                {segment.text}
+                              </span>
+                            ))}
+                          </CollapsibleContent>
+                        </Collapsible>
+                      ))}
+                    </div>
                     <Textarea
                       value={editText}
                       onChange={(e) => setEditText(e.target.value)}

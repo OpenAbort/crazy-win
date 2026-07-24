@@ -3,9 +3,17 @@ import { ChevronDown, ChevronUp, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { applySearch, tokenize, type HighlightLanguage, type TokenKind } from "@/features/dev-tools/formatter-highlight";
+import {
+  applySearch,
+  tokenize,
+  MAX_TOKENIZE_LENGTH,
+  type HighlightLanguage,
+  type TokenKind,
+} from "@/features/dev-tools/formatter-highlight";
 
-const TOKEN_CLASSES: Record<TokenKind, string> = {
+/// Exported so other views (e.g. the Kubernetes tool's sectioned manifest
+/// preview) can render the same JSON-token colors without duplicating them.
+export const TOKEN_CLASSES: Record<TokenKind, string> = {
   key: "text-blue-600 dark:text-blue-400",
   string: "text-emerald-600 dark:text-emerald-400",
   number: "text-orange-600 dark:text-orange-400",
@@ -117,27 +125,34 @@ export function JsonDetailPane({
   }, [scrollTick]);
 
   return (
-    <div className="h-full min-h-0 flex-1 overflow-auto rounded-lg border border-input bg-transparent px-2.5 py-2 font-mono text-xs whitespace-pre-wrap break-words">
-      {content ? (
-        segments.map((segment, i) => (
-          <span
-            key={i}
-            ref={segment.isMatch && segment.matchIndex === currentMatch ? currentMatchRef : undefined}
-            className={
-              (TOKEN_CLASSES[segment.kind] || "") +
-              (segment.isMatch
-                ? segment.matchIndex === currentMatch
-                  ? " bg-orange-400 text-black rounded-sm"
-                  : " bg-yellow-300/60 dark:bg-yellow-500/40 rounded-sm"
-                : "")
-            }
-          >
-            {segment.text}
-          </span>
-        ))
-      ) : (
-        <span className="text-muted-foreground">{emptyLabel}</span>
+    <>
+      {content.length > MAX_TOKENIZE_LENGTH && (
+        <p className="shrink-0 text-xs text-muted-foreground">
+          Large content — syntax highlighting disabled for performance.
+        </p>
       )}
-    </div>
+      <div className="h-full min-h-0 flex-1 overflow-auto rounded-lg border border-input bg-transparent px-2.5 py-2 font-mono text-xs whitespace-pre-wrap break-words">
+        {content ? (
+          segments.map((segment, i) => (
+            <span
+              key={i}
+              ref={segment.isMatch && segment.matchIndex === currentMatch ? currentMatchRef : undefined}
+              className={
+                (TOKEN_CLASSES[segment.kind] || "") +
+                (segment.isMatch
+                  ? segment.matchIndex === currentMatch
+                    ? " bg-orange-400 text-black rounded-sm"
+                    : " bg-yellow-300/60 dark:bg-yellow-500/40 rounded-sm"
+                  : "")
+              }
+            >
+              {segment.text}
+            </span>
+          ))
+        ) : (
+          <span className="text-muted-foreground">{emptyLabel}</span>
+        )}
+      </div>
+    </>
   );
 }

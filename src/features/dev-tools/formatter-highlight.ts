@@ -165,8 +165,16 @@ function tokenizeYaml(output: string): Token[] {
   return tokens;
 }
 
+/// Past this size, tokenizing into one span per JSON/YAML token produces tens
+/// of thousands of DOM nodes — slow to compute and slow for React to render —
+/// so large content falls back to a single plain "text" token instead. Search
+/// (`applySearch`) still works, since it operates on the joined token text,
+/// not on the token boundaries themselves.
+export const MAX_TOKENIZE_LENGTH = 200_000;
+
 export function tokenize(language: HighlightLanguage, output: string): Token[] {
   if (!output) return [];
+  if (output.length > MAX_TOKENIZE_LENGTH) return [{ text: output, kind: "text" }];
   switch (language) {
     case "json":
       return tokenizeJson(output);

@@ -53,3 +53,29 @@ export function parseResourceList(raw: string, kind: K8sKind): K8sResourceSummar
     raw: item,
   }));
 }
+
+export function filterResources(resources: K8sResourceSummary[], query: string): K8sResourceSummary[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return resources;
+  return resources.filter((r) => r.name.toLowerCase().includes(q) || r.namespace.toLowerCase().includes(q));
+}
+
+/// Green for a healthy/ready state, amber for in-progress, red for failed —
+/// matches the `text-emerald-600 dark:text-emerald-400` convention already
+/// used elsewhere in this app (text-comparer.tsx, docker-manager.tsx, etc.).
+export function statusColorClass(kind: K8sKind, status: string): string {
+  if (kind === "pods") {
+    if (status === "Running" || status === "Succeeded") return "text-emerald-600 dark:text-emerald-400";
+    if (status === "Pending") return "text-amber-600 dark:text-amber-400";
+    if (status === "Failed" || status === "Unknown") return "text-red-600 dark:text-red-400";
+    return "";
+  }
+  if (kind === "deployments") {
+    const [ready, desired] = status.split("/").map((s) => parseInt(s, 10));
+    if (Number.isFinite(ready) && Number.isFinite(desired) && desired > 0 && ready >= desired) {
+      return "text-emerald-600 dark:text-emerald-400";
+    }
+    return "text-amber-600 dark:text-amber-400";
+  }
+  return "";
+}
